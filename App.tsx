@@ -4,7 +4,7 @@ import { Header } from './components/Header';
 import { ImageUploader } from './components/ImageUploader';
 import { ImageItem, TransformationStats, TransformationOptions, CompositionType, DedicatedFilterType, TextOverlay } from './types';
 import { analyzeImageCategory, transformImage, recommendTextColor, fileToBase64 } from './services/geminiService';
-import { Play, Zap, Settings, Trash2, Download, Send, Type as TypeIcon, Sparkles, Key, X, Info, ExternalLink } from 'lucide-react';
+import { Play, Zap, Settings, Trash2, Download, Send, Type as TypeIcon, Sparkles, Key, X, Info, ExternalLink, CheckCircle } from 'lucide-react';
 
 const FONT_OPTIONS = [
   { name: 'Inter (기본)', class: 'font-inter' },
@@ -21,8 +21,12 @@ const App: React.FC = () => {
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [activeRefineId, setActiveRefineId] = useState<string | null>(null);
   const [refineInput, setRefineInput] = useState('');
-  const [showKeySetup, setShowKeySetup] = useState(false);
   
+  // API 키 관련 상태
+  const [showKeySetup, setShowKeySetup] = useState(false);
+  const [manualKey, setManualKey] = useState(localStorage.getItem('GEMINI_API_KEY') || '');
+  const [isAistudioEnv, setIsAistudioEnv] = useState(false);
+
   const [options, setOptions] = useState<TransformationOptions>({
     composition: 'original',
     zoom: 'none',
@@ -30,28 +34,34 @@ const App: React.FC = () => {
     resolution: '1500' 
   });
 
-  // API 키 체크
+  // 환경 감지 및 키 체크
   useEffect(() => {
-    const checkKey = async () => {
+    const checkEnv = async () => {
       if (typeof window.aistudio !== 'undefined') {
+        setIsAistudioEnv(true);
         const hasKey = await window.aistudio.hasSelectedApiKey();
-        if (!hasKey) {
+        if (!hasKey) setShowKeySetup(true);
+      } else {
+        setIsAistudioEnv(false);
+        if (!localStorage.getItem('GEMINI_API_KEY')) {
           setShowKeySetup(true);
         }
       }
     };
-    checkKey();
+    checkEnv();
   }, []);
 
-  // 실제 시스템 키 선택창 호출
-  const handleOpenKeySetup = async () => {
-    if (typeof window.aistudio !== 'undefined') {
-      try {
-        await window.aistudio.openSelectKey();
-        // 키 선택 후 자동으로 메인 앱으로 진입 시도
+  const handleSaveKey = () => {
+    if (isAistudioEnv) {
+      window.aistudio?.openSelectKey();
+      setShowKeySetup(false);
+    } else {
+      if (manualKey.startsWith('AIza')) {
+        localStorage.setItem('GEMINI_API_KEY', manualKey);
         setShowKeySetup(false);
-      } catch (err) {
-        console.error("Key selection failed", err);
+        alert("API 키가 저장되었습니다.");
+      } else {
+        alert("올바른 Gemini API 키 형식이 아닙니다. (AIza...로 시작해야 합니다)");
       }
     }
   };
@@ -136,7 +146,7 @@ const App: React.FC = () => {
         const remixedUrl = await transformImage(base64, category, options);
         setImages(prev => prev.map(img => img.id === image.id ? { ...img, status: 'completed', processedUrl: remixedUrl } : img));
       } catch (err: any) {
-        if (err.message === "API_KEY_EXPIRED" || err.message?.includes("entity was not found")) {
+        if (err.message === "API_KEY_EXPIRED" || err.message === "API_KEY_MISSING") {
           setShowKeySetup(true);
         }
         setImages(prev => prev.map(img => img.id === image.id ? { ...img, status: 'error', error: err.message } : img));
@@ -165,60 +175,57 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-slate-950 text-slate-200">
       <Header />
       
-      {/* API Key Setup Modal (스크린샷 디자인 반영) */}
+      {/* API Key Setup Modal (하이브리드 지원) */}
       {showKeySetup && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="w-full max-w-md bg-white rounded-[32px] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300">
-            {/* Header */}
-            <div className="bg-[#D97706] p-8 pb-10 flex items-center justify-between relative">
+            <div className="bg-[#D97706] p-8 pb-10 flex items-center justify-between relative text-white">
               <div className="flex items-center gap-3">
-                <Key className="w-7 h-7 text-white" />
-                <h2 className="text-2xl font-bold text-white tracking-tight">Gemini API 키 설정</h2>
+                <Key className="w-7 h-7" />
+                <h2 className="text-2xl font-bold tracking-tight">Gemini API 키 설정</h2>
               </div>
-              <button onClick={() => setShowKeySetup(false)} className="text-white/80 hover:text-white transition-colors">
-                <X className="w-6 h-6" />
-              </button>
-              <p className="absolute bottom-4 left-8 text-white/90 text-sm font-medium">
-                API 키를 입력하고 테스트를 완료하면 자동으로 저장됩니다.
-              </p>
+              <button onClick={() => setShowKeySetup(false)} className="opacity-80 hover:opacity-100"><X /></button>
+              <p className="absolute bottom-4 left-8 text-sm font-medium">API 키를 입력하고 테스트를 완료하면 자동으로 저장됩니다.</p>
             </div>
 
-            {/* Content */}
             <div className="p-8 space-y-8">
-              <div className="bg-[#EFF6FF] border border-[#BFDBFE] rounded-2xl p-5 flex gap-3">
-                <Info className="w-5 h-5 text-[#2563EB] flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-[#1E40AF] leading-relaxed font-medium">
-                  키는 브라우저 로컬 스토리지에 암호화되어 저장되며 서버로 전송되지 않습니다.
-                </p>
+              <div className="bg-[#EFF6FF] border border-[#BFDBFE] rounded-2xl p-5 flex gap-3 text-[#1E40AF]">
+                <Info className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <p className="text-sm leading-relaxed font-medium">키는 브라우저 로컬 스토리지에 저장되며 외부로 전송되지 않습니다.</p>
               </div>
 
               <div className="space-y-4">
                 <label className="text-[11px] font-bold text-[#94A3B8] uppercase tracking-widest block">GEMINI API KEY</label>
-                {/* 실제 입력 필드처럼 보이지만 클릭하면 시스템 키 창을 여는 버튼 */}
-                <button 
-                  onClick={handleOpenKeySetup}
-                  className="w-full bg-[#F8FAFC] border border-[#E2E8F0] rounded-2xl px-5 py-4 text-[#64748B] text-sm flex items-center justify-between hover:border-[#D97706] hover:bg-orange-50 transition-all text-left"
-                >
-                  <span className="font-medium">여기를 클릭하여 API 키를 선택/입력하세요</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] bg-white border border-[#E2E8F0] px-2 py-0.5 rounded text-[#94A3B8]">AIza...</span>
+                
+                {isAistudioEnv ? (
+                  <button onClick={handleSaveKey} className="w-full bg-[#F8FAFC] border border-[#E2E8F0] rounded-2xl px-5 py-4 text-[#64748B] text-sm flex items-center justify-between hover:border-[#D97706] transition-all">
+                    <span>여기를 클릭하여 API 키 선택</span>
                     <Sparkles className="w-4 h-4 text-[#D97706]" />
-                  </div>
-                </button>
+                  </button>
+                ) : (
+                  <input 
+                    type="password"
+                    placeholder="AIza... 로 시작하는 키를 입력하세요"
+                    value={manualKey}
+                    onChange={(e) => setManualKey(e.target.value)}
+                    className="w-full bg-[#F8FAFC] border border-[#E2E8F0] rounded-2xl px-5 py-4 text-slate-900 text-sm focus:border-[#D97706] outline-none transition-all"
+                  />
+                )}
+                
                 <a href="https://aistudio.google.com/app/apikey" target="_blank" className="flex items-center gap-1.5 text-sm text-[#D97706] font-bold hover:underline w-fit">
                   API 키 발급받기 <ExternalLink className="w-3.5 h-3.5" />
                 </a>
               </div>
 
               <button 
-                onClick={handleOpenKeySetup}
-                className="w-full py-5 bg-[#D97706] hover:bg-[#B45309] text-white font-black text-lg rounded-2xl shadow-lg shadow-orange-900/20 active:scale-[0.98] transition-all"
+                onClick={handleSaveKey}
+                className="w-full py-5 bg-[#D97706] hover:bg-[#B45309] text-white font-black text-lg rounded-2xl shadow-lg active:scale-[0.98] transition-all"
               >
-                연결 테스트 및 저장
+                {isAistudioEnv ? '연결 테스트 및 저장' : '키 저장 및 시작하기'}
               </button>
 
               <p className="text-center text-[#94A3B8] text-[11px] font-bold italic">
-                * 유효한 키를 입력하고 버튼을 누르면 테스트 후 자동 저장됩니다.
+                * 유효한 키를 입력하고 버튼을 누르면 즉시 사용 가능합니다.
               </p>
             </div>
           </div>
@@ -268,9 +275,9 @@ const App: React.FC = () => {
             <h3 className="text-xl font-bold text-white flex items-center gap-2">
               작업 결과물 <span className="text-blue-500 text-sm">{stats.completed}</span>
             </h3>
-            {images.some(img => img.status === 'completed') && (
+            {images.length > 0 && (
                <button onClick={() => setImages([])} className="text-xs text-slate-500 hover:text-red-400 flex items-center gap-1.5 font-bold transition-colors">
-                  <Trash2 className="w-3.5 h-3.5" /> 전체 비우기
+                  <Trash2 className="w-3.5 h-3.5" /> 리스트 초기화
                </button>
             )}
           </div>
@@ -339,7 +346,7 @@ const App: React.FC = () => {
                         </div>
                       ) : activeRefineId === task.id ? (
                         <div className="bg-slate-800 p-4 rounded-xl border border-orange-500/30 space-y-3 animate-in slide-in-from-bottom-2">
-                          <textarea autoFocus placeholder="보정 요청(예: 더 밝게, 배경을 푸른색으로...)" value={refineInput} onChange={e => setRefineInput(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs min-h-[60px] text-white" />
+                          <textarea autoFocus placeholder="보정 요청(예: 더 밝게, 노란끼 빼줘...)" value={refineInput} onChange={e => setRefineInput(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs min-h-[60px] text-white" />
                           <div className="flex gap-2">
                             <button onClick={() => handleRefine(task.id, refineInput)} className="flex-1 bg-orange-600 hover:bg-orange-500 py-2 rounded-lg text-xs font-bold text-white">보정 적용</button>
                             <button onClick={() => setActiveRefineId(null)} className="px-3 bg-slate-700 py-2 rounded-lg text-xs font-bold">취소</button>
@@ -372,9 +379,9 @@ const App: React.FC = () => {
 
       <footer className="py-12 border-t border-slate-900 bg-slate-900/30 text-center space-y-4">
         <div className="flex justify-center gap-8 text-sm text-slate-500 font-medium">
-          <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="hover:text-blue-400 underline underline-offset-4 decoration-slate-800 transition-colors">구글 클라우드 빌링 설정</a>
-          <button onClick={() => setShowKeySetup(true)} className="hover:text-blue-400 flex items-center gap-1.5 transition-colors">
-            <Key className="w-3.5 h-3.5" /> 키 재설정
+          <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="hover:text-blue-400 underline underline-offset-4 decoration-slate-800 transition-colors font-bold">구글 클라우드 빌링 설정 가이드</a>
+          <button onClick={() => setShowKeySetup(true)} className="hover:text-blue-400 flex items-center gap-1.5 transition-colors font-bold">
+            <Key className="w-3.5 h-3.5" /> API 키 재설정
           </button>
         </div>
         <p className="text-[11px] text-slate-600 font-bold uppercase tracking-widest">Powered by Gemini 3.0 Pro Vision Engine</p>

@@ -2,7 +2,19 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { ImageCategory, TransformationOptions } from "../types";
 
-const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
+// API 키를 전역적으로 관리하거나 로컬 스토리지에서 가져옵니다.
+const getApiKey = () => {
+  // 1. 우선순위: window.aistudio 환경 (내부)
+  if (process.env.API_KEY) return process.env.API_KEY;
+  // 2. 차순위: 로컬 스토리지 (외부 배포 환경)
+  return localStorage.getItem('GEMINI_API_KEY') || "";
+};
+
+const getAI = () => {
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error("API_KEY_MISSING");
+  return new GoogleGenAI({ apiKey });
+};
 
 export const analyzeImageCategory = async (base64Image: string): Promise<ImageCategory> => {
   const ai = getAI();
@@ -72,7 +84,7 @@ export const transformImage = async (
     }
     throw new Error("이미지 생성 결과가 없습니다.");
   } catch (error: any) {
-    if (error.message?.includes("Requested entity was not found")) {
+    if (error.message?.includes("Requested entity was not found") || error.message?.includes("API_KEY_INVALID")) {
       throw new Error("API_KEY_EXPIRED");
     }
     throw error;
