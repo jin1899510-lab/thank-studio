@@ -1,0 +1,7 @@
+{
+  "name": "스튜디오 리이매진 Pro",
+  "description": "사용자 API 키 연동형 전문가급 AI 사진 변환 및 텍스트 편집 도구",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
