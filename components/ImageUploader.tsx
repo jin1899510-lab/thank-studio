@@ -54,7 +54,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onUpload, disabled
             {disabled ? '업로드 한도 초과' : '사진 또는 ZIP 파일을 드래그하거나 클릭하여 업로드'}
           </p>
           <p className="text-sm text-slate-500 mt-1">
-            이미지 낱개 파일 또는 <span className="text-blue-400 font-medium">ZIP 압축 파일</span>(최대 100장)을 지원합니다.
+            이미지 개별 파일 또는 <span className="text-blue-400 font-medium">ZIP 압축 파일</span>(최대 100장)을 지원합니다.
           </p>
         </div>
 
@@ -76,7 +76,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onUpload, disabled
       {!disabled && (
         <div className="absolute bottom-4 right-4 text-slate-500 flex items-center gap-1 text-[10px] uppercase font-bold tracking-tighter opacity-50">
           <Package className="w-3 h-3" />
-          <span>ZIP Support Enabled</span>
+          <span>ZIP 압축파일 지원됨</span>
         </div>
       )}
     </div>
