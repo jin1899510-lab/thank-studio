@@ -8,12 +8,21 @@ import { ImageCategory, TransformationOptions } from "../types";
 const getApiKey = () => {
   // 1. AI Studio 내부 환경 체크
   try {
-    const envKey = (window as any).process?.env?.API_KEY || (typeof process !== 'undefined' && process.env?.API_KEY);
-    if (envKey) return envKey;
+    if (typeof process !== 'undefined' && process.env?.API_KEY) {
+      return process.env.API_KEY;
+    }
   } catch (e) {}
 
-  // 2. 외부 환경(Vercel 등) localStorage 체크
-  return localStorage.getItem('GEMINI_API_KEY') || "";
+  // 2. localStorage에서 복호화하여 가져오기
+  const saved = localStorage.getItem('GEMINI_API_KEY_ENCRYPTED');
+  if (saved) {
+    try {
+      return atob(saved); // Simple base64 decode for obfuscation
+    } catch (e) {
+      return "";
+    }
+  }
+  return "";
 };
 
 /**
@@ -23,6 +32,24 @@ const getAI = () => {
   const apiKey = getApiKey();
   if (!apiKey) throw new Error("API_KEY_MISSING");
   return new GoogleGenAI({ apiKey });
+};
+
+/**
+ * API 키 연결 테스트 (Ping)
+ */
+export const testConnection = async (tempKey: string): Promise<boolean> => {
+  try {
+    // 테스트용 인스턴스 직접 생성
+    const ai = new GoogleGenAI({ apiKey: tempKey });
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-lite-latest",
+      contents: "ping",
+    });
+    return !!response.text;
+  } catch (error) {
+    console.error("Connection test failed:", error);
+    return false;
+  }
 };
 
 export const analyzeImageCategory = async (base64Image: string): Promise<ImageCategory> => {

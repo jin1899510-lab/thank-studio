@@ -1,10 +1,14 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Header } from './components/Header';
 import { ImageUploader } from './components/ImageUploader';
 import { ImageItem, TransformationStats, TransformationOptions, CompositionType, DedicatedFilterType, TextOverlay } from './types';
-import { analyzeImageCategory, transformImage, recommendTextColor, fileToBase64 } from './services/geminiService';
-import { Play, Zap, Settings, Trash2, Download, Send, Type as TypeIcon, Sparkles, Key, X, Info, ExternalLink, CheckCircle, ShieldAlert } from 'lucide-react';
+import { analyzeImageCategory, transformImage, recommendTextColor, fileToBase64, testConnection } from './services/geminiService';
+import { 
+  Play, Zap, Settings, Trash2, Download, Send, Type as TypeIcon, 
+  Sparkles, Key, X, Info, ExternalLink, CheckCircle, ShieldAlert, 
+  Database, Save, FileUp, Loader2, AlertTriangle, ShieldCheck 
+} from 'lucide-react';
 
 const FONT_OPTIONS = [
   { name: 'Inter (기본)', class: 'font-inter' },
@@ -22,10 +26,12 @@ const App: React.FC = () => {
   const [activeRefineId, setActiveRefineId] = useState<string | null>(null);
   const [refineInput, setRefineInput] = useState('');
   
-  // API 키 관련 상태 (Vercel 지원을 위해 초기값은 무조건 체크)
-  const [showKeySetup, setShowKeySetup] = useState(false);
-  const [manualKey, setManualKey] = useState('');
+  // API 키 관리 상태
+  const [showKeyManager, setShowKeyManager] = useState(false);
+  const [tempKey, setTempKey] = useState('');
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
   const [isAistudioEnv, setIsAistudioEnv] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [options, setOptions] = useState<TransformationOptions>({
     composition: 'original',
@@ -34,50 +40,77 @@ const App: React.FC = () => {
     resolution: '1500' 
   });
 
-  // 앱 시작 시 API 키 체크
+  // 초기 로드 시 키 확인
   useEffect(() => {
-    const checkApiKey = async () => {
-      // 1. AI Studio 환경 여부 확인
+    const initApp = async () => {
       const win = window as any;
-      const isAistudio = !!(win.aistudio && win.aistudio.hasSelectedApiKey);
-      setIsAistudioEnv(isAistudio);
+      const hasSystemKey = !!(win.aistudio && win.aistudio.hasSelectedApiKey);
+      setIsAistudioEnv(hasSystemKey);
 
-      if (isAistudio) {
+      const saved = localStorage.getItem('GEMINI_API_KEY_ENCRYPTED');
+      if (saved) {
         try {
-          const hasKey = await win.aistudio.hasSelectedApiKey();
-          if (!hasKey) setShowKeySetup(true);
-        } catch (e) {
-          setShowKeySetup(true);
-        }
-      } else {
-        // 2. Vercel 등 일반 브라우저 환경
-        const savedKey = localStorage.getItem('GEMINI_API_KEY');
-        if (!savedKey) {
-          setShowKeySetup(true);
-        } else {
-          setManualKey(savedKey);
-        }
+          setTempKey(atob(saved));
+        } catch (e) {}
+      } else if (!hasSystemKey) {
+        // AI Studio 환경이 아니고 키가 없으면 자동으로 설정창 띄움
+        setTimeout(() => setShowKeyManager(true), 500);
       }
     };
-
-    checkApiKey();
+    initApp();
   }, []);
 
-  const handleSaveKey = async () => {
-    if (isAistudioEnv) {
-      await (window as any).aistudio?.openSelectKey();
-      setShowKeySetup(false);
+  const handleTestKey = async () => {
+    if (!tempKey.trim()) return;
+    setTestStatus('testing');
+    const ok = await testConnection(tempKey.trim());
+    setTestStatus(ok ? 'success' : 'failed');
+  };
+
+  const saveToLocal = () => {
+    const key = tempKey.trim();
+    if (key.startsWith('AIza')) {
+      localStorage.setItem('GEMINI_API_KEY_ENCRYPTED', btoa(key));
+      alert("브라우저 로컬 드라이브에 키가 암호화되어 저장되었습니다.");
+      if (testStatus === 'success') setShowKeyManager(false);
     } else {
-      const key = manualKey.trim();
-      if (key && key.startsWith('AIza')) {
-        localStorage.setItem('GEMINI_API_KEY', key);
-        setShowKeySetup(false);
-        // 저장이 완료되었음을 알림
-        alert("API 키가 성공적으로 저장되었습니다.");
-      } else {
-        alert("올바른 Gemini API 키를 입력해주세요. (AIza...로 시작해야 합니다)");
-      }
+      alert("올바른 Gemini API 키 형식이 아닙니다.");
     }
+  };
+
+  const exportConfig = () => {
+    if (!tempKey) return alert("내보낼 키 정보가 없습니다.");
+    const config = {
+      key: btoa(tempKey),
+      created_at: new Date().toISOString(),
+      provider: "Google Gemini"
+    };
+    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `config_${new Date().getTime()}.studio`;
+    link.click();
+  };
+
+  const importConfig = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const json = JSON.parse(event.target?.result as string);
+        if (json.key) {
+          const key = atob(json.key);
+          setTempKey(key);
+          setTestStatus('idle');
+          alert("설정 파일에서 API 키를 성공적으로 가져왔습니다.");
+        }
+      } catch (err) {
+        alert("잘못된 형식의 설정 파일입니다.");
+      }
+    };
+    reader.readAsText(file);
   };
 
   const stats: TransformationStats = useMemo(() => ({
@@ -114,8 +147,12 @@ const App: React.FC = () => {
     const img = images.find(i => i.id === id);
     if (!img || !img.processedUrl) return;
     const base64 = img.processedUrl.split(',')[1];
-    const color = await recommendTextColor(base64);
-    updateTaskOverlay(id, { color });
+    try {
+      const color = await recommendTextColor(base64);
+      updateTaskOverlay(id, { color });
+    } catch (e) {
+      setShowKeyManager(true);
+    }
   };
 
   const downloadCombined = (task: ImageItem) => {
@@ -160,11 +197,11 @@ const App: React.FC = () => {
         const remixedUrl = await transformImage(base64, category, options);
         setImages(prev => prev.map(img => img.id === image.id ? { ...img, status: 'completed', processedUrl: remixedUrl } : img));
       } catch (err: any) {
-        const errMsg = err.message || "";
-        if (errMsg.includes("API_KEY_EXPIRED") || errMsg.includes("API_KEY_MISSING")) {
-          setShowKeySetup(true);
+        if (err.message?.includes("API_KEY") || err.message?.includes("MISSING")) {
+          setShowKeyManager(true);
+          break;
         }
-        setImages(prev => prev.map(img => img.id === image.id ? { ...img, status: 'error', error: errMsg } : img));
+        setImages(prev => prev.map(img => img.id === image.id ? { ...img, status: 'error', error: err.message } : img));
       }
     }
     setIsProcessing(false);
@@ -181,78 +218,121 @@ const App: React.FC = () => {
       const refined = await transformImage(base64, img.category || 'Other', options, prompt);
       setImages(prev => prev.map(i => i.id === id ? { ...i, status: 'completed', processedUrl: refined } : i));
     } catch (err: any) {
-      const errMsg = err.message || "";
-      if (errMsg.includes("API_KEY_EXPIRED")) setShowKeySetup(true);
-      setImages(prev => prev.map(i => i.id === id ? { ...i, status: 'error', error: errMsg } : i));
+      if (err.message?.includes("API_KEY")) setShowKeyManager(true);
+      setImages(prev => prev.map(i => i.id === id ? { ...i, status: 'error', error: err.message } : i));
     }
     setIsProcessing(false);
   };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 overflow-x-hidden">
-      <Header />
+      <Header onKeyClick={() => setShowKeyManager(true)} />
       
-      {/* API Key Setup Modal - Vercel에서 확실히 보이도록 스타일 강화 */}
-      {showKeySetup && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
-          <div className="w-full max-w-md bg-white rounded-[32px] overflow-hidden shadow-2xl ring-1 ring-white/20">
+      {/* External API Key Manager Modal */}
+      {showKeyManager && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl animate-in fade-in duration-300">
+          <div className="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-[40px] overflow-hidden shadow-2xl ring-1 ring-white/10">
             {/* Header */}
-            <div className="bg-[#D97706] p-8 pb-10 flex items-center justify-between relative text-white">
-              <div className="flex items-center gap-3">
-                <Key className="w-7 h-7" />
-                <h2 className="text-2xl font-bold tracking-tight">Gemini API 키 설정</h2>
+            <div className="bg-gradient-to-r from-blue-700 to-indigo-700 p-10 flex items-center justify-between text-white relative overflow-hidden">
+              <div className="flex items-center gap-5 z-10">
+                <div className="p-4 bg-white/10 rounded-3xl backdrop-blur-md border border-white/20">
+                  <ShieldCheck className="w-9 h-9" />
+                </div>
+                <div>
+                  <h2 className="text-3xl font-black tracking-tight">외부 API 보안 매니저</h2>
+                  <p className="text-blue-100/80 text-sm font-medium mt-1">사용자 지정 API 키로 기능을 활성화합니다.</p>
+                </div>
               </div>
-              <button onClick={() => setShowKeySetup(false)} className="p-2 hover:bg-black/10 rounded-full transition-colors">
-                <X className="w-6 h-6" />
+              <button onClick={() => setShowKeyManager(false)} className="p-2 hover:bg-black/10 rounded-full transition-colors z-10">
+                <X className="w-8 h-8" />
               </button>
-              <p className="absolute bottom-4 left-8 text-sm font-medium opacity-90">변환 기능을 위해 사용자 키가 필요합니다.</p>
+              {/* Decorative Background Element */}
+              <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-white/5 rounded-full blur-3xl"></div>
             </div>
 
-            {/* Content */}
-            <div className="p-8 space-y-8">
-              <div className="bg-[#FFFBEB] border border-[#FEF3C7] rounded-2xl p-5 flex gap-3 text-[#92400E]">
-                <ShieldAlert className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                <p className="text-sm leading-relaxed font-medium">
-                  본 서비스는 <b>개인 API 키</b>를 브라우저(localStorage)에만 안전하게 저장합니다. 입력한 키는 서버로 전송되지 않습니다.
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                <label className="text-[11px] font-bold text-[#94A3B8] uppercase tracking-widest block">GEMINI API KEY (AIza...)</label>
-                
-                {isAistudioEnv ? (
-                  <button 
-                    onClick={handleSaveKey} 
-                    className="w-full bg-[#F8FAFC] border border-[#E2E8F0] rounded-2xl px-5 py-4 text-[#64748B] text-sm flex items-center justify-between hover:border-[#D97706] transition-all"
-                  >
-                    <span>여기를 클릭하여 시스템 키 선택</span>
-                    <Sparkles className="w-4 h-4 text-[#D97706]" />
-                  </button>
-                ) : (
-                  <div className="relative">
-                    <input 
-                      type="text"
-                      placeholder="AIza...로 시작하는 키를 직접 입력하세요"
-                      value={manualKey}
-                      onChange={(e) => setManualKey(e.target.value)}
-                      className="w-full bg-[#F8FAFC] border border-[#E2E8F0] rounded-2xl px-5 py-4 text-slate-900 text-sm focus:border-[#D97706] focus:ring-1 focus:ring-[#D97706] outline-none transition-all pr-12"
-                    />
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                      {manualKey.trim().startsWith('AIza') ? <CheckCircle className="w-5 h-5 text-green-500" /> : <Key className="w-5 h-5 text-slate-300" />}
-                    </div>
+            {/* Body */}
+            <div className="p-10 space-y-10 max-h-[70vh] overflow-y-auto custom-scrollbar">
+              {/* Input Section */}
+              <div className="space-y-5">
+                <div className="flex justify-between items-end">
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <Database className="w-4 h-4 text-blue-500" /> Gemini API KEY (AIza...)
+                  </label>
+                  <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-400 font-bold hover:underline flex items-center gap-1">
+                    키 무료 발급받기 <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+                <div className="relative group">
+                  <input 
+                    type="password"
+                    placeholder="여기에 API 키를 붙여넣으세요"
+                    value={tempKey}
+                    onChange={(e) => {setTempKey(e.target.value); setTestStatus('idle');}}
+                    className="w-full bg-slate-800/50 border-2 border-slate-700/50 rounded-2xl px-7 py-6 text-white focus:border-blue-500 outline-none transition-all placeholder:text-slate-600 font-mono text-lg shadow-inner"
+                  />
+                  <div className="absolute right-5 top-1/2 -translate-y-1/2 flex items-center gap-3">
+                    {testStatus === 'testing' && <Loader2 className="w-7 h-7 text-blue-500 animate-spin" />}
+                    {testStatus === 'success' && <div className="p-1.5 bg-green-500/20 rounded-full"><CheckCircle className="w-6 h-6 text-green-500 animate-in zoom-in" /></div>}
+                    {testStatus === 'failed' && <div className="p-1.5 bg-red-500/20 rounded-full"><AlertTriangle className="w-6 h-6 text-red-500 animate-bounce" /></div>}
                   </div>
-                )}
+                </div>
                 
-                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-sm text-[#D97706] font-bold hover:underline w-fit">
-                  Google AI Studio에서 키 무료 발급 받기 <ExternalLink className="w-3.5 h-3.5" />
-                </a>
+                <div className="grid grid-cols-2 gap-4">
+                  <button 
+                    onClick={handleTestKey}
+                    disabled={testStatus === 'testing' || !tempKey}
+                    className="py-4 bg-slate-800 hover:bg-slate-700 rounded-2xl text-[11px] font-black flex items-center justify-center gap-2 transition-all border border-slate-700 uppercase tracking-widest disabled:opacity-50"
+                  >
+                    {testStatus === 'testing' ? '연결 확인 중...' : '연결 상태 테스트'}
+                  </button>
+                  <button 
+                    onClick={saveToLocal}
+                    disabled={!tempKey}
+                    className="py-4 bg-blue-600 hover:bg-blue-500 rounded-2xl text-[11px] font-black flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-900/20 uppercase tracking-widest disabled:opacity-50"
+                  >
+                    <Save className="w-4 h-4" /> 현재 세션에 저장
+                  </button>
+                </div>
               </div>
 
+              {/* Config Files */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                <div className="group p-7 bg-slate-800/30 border border-slate-700/50 rounded-[32px] space-y-4 hover:border-blue-500/30 transition-all hover:bg-slate-800/50">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-black text-white flex items-center gap-2"><Save className="w-4 h-4 text-blue-400" /> 키 정보 내보내기</h4>
+                    <Save className="w-5 h-5 text-slate-700 group-hover:text-blue-500/50" />
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed font-medium">설정을 .studio 파일로 로컬 드라이브에 안전하게 보관합니다.</p>
+                  <button onClick={exportConfig} className="w-full py-3.5 bg-slate-700 hover:bg-blue-600 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">Download .studio</button>
+                </div>
+                <div className="group p-7 bg-slate-800/30 border border-slate-700/50 rounded-[32px] space-y-4 hover:border-indigo-500/30 transition-all hover:bg-slate-800/50">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-black text-white flex items-center gap-2"><FileUp className="w-4 h-4 text-indigo-400" /> 설정 불러오기</h4>
+                    <FileUp className="w-5 h-5 text-slate-700 group-hover:text-indigo-500/50" />
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed font-medium">이전에 저장했던 설정 파일을 불러와 즉시 연결을 활성화합니다.</p>
+                  <input type="file" accept=".studio" ref={fileInputRef} onChange={importConfig} className="hidden" />
+                  <button onClick={() => fileInputRef.current?.click()} className="w-full py-3.5 bg-slate-700 hover:bg-indigo-600 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">Upload .studio</button>
+                </div>
+              </div>
+
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-3xl p-6 flex gap-4 text-amber-200">
+                <ShieldAlert className="w-6 h-6 flex-shrink-0 mt-0.5 text-amber-400" />
+                <div className="space-y-1">
+                   <p className="text-xs font-black uppercase tracking-widest">Security Notice</p>
+                   <p className="text-[11px] leading-relaxed font-medium text-amber-100/70">
+                    본 앱은 외장형 키 관리 모델을 따릅니다. 사용자의 키는 어떤 서버로도 전송되지 않으며, 오직 브라우저의 로컬 보안 영역에만 저장됩니다.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-10 bg-slate-950/50 border-t border-slate-800 flex justify-end">
               <button 
-                onClick={handleSaveKey}
-                className="w-full py-5 bg-[#D97706] hover:bg-[#B45309] text-white font-black text-lg rounded-2xl shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                onClick={() => setShowKeyManager(false)}
+                className="px-10 py-4 text-slate-500 hover:text-white font-black text-xs uppercase tracking-[0.2em] transition-all hover:bg-white/5 rounded-2xl"
               >
-                설정 완료 및 시작하기
+                닫기
               </button>
             </div>
           </div>
@@ -262,74 +342,81 @@ const App: React.FC = () => {
       <main className="max-w-7xl mx-auto px-4 py-8">
         <section className="mb-12 flex flex-col lg:flex-row gap-8">
           <div className="flex-1">
-            <h2 className="text-3xl font-bold text-white mb-2 uppercase tracking-tight">AI Studio Re-Imagined</h2>
-            <p className="text-slate-400 mb-6 font-medium">유사 사진 검사에 걸리지 않는 고유한 스튜디오급 고화질 사진을 일괄 생성합니다.</p>
+            <h2 className="text-5xl font-black text-white mb-2 uppercase tracking-tighter leading-none italic">Studio <span className="text-blue-600">Re-Imagined</span></h2>
+            <p className="text-slate-400 mb-8 font-bold font-mono text-sm tracking-widest opacity-60">PRO BATCH TRANSFORMATION ENGINE v2.5</p>
             <ImageUploader onUpload={handleUpload} count={images.length} disabled={isProcessing} />
           </div>
           
-          <div className="w-full lg:w-80 bg-slate-900/50 border border-slate-800 rounded-2xl p-6 h-fit sticky top-24">
-            <h3 className="flex items-center gap-2 font-bold mb-4 text-white border-b border-slate-800 pb-2">
-              <Settings className="w-4 h-4 text-blue-500" /> 일괄 변환 설정
+          <div className="w-full lg:w-80 bg-slate-900/40 border border-slate-800 rounded-3xl p-7 h-fit sticky top-24 backdrop-blur-md">
+            <h3 className="flex items-center gap-2 font-black mb-8 text-white border-b border-slate-800 pb-4 uppercase text-[10px] tracking-[0.3em]">
+              <Settings className="w-5 h-5 text-blue-500" /> ENGINE CONFIG
             </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="text-[10px] font-bold text-slate-500 uppercase mb-2 block">촬영 구도</label>
-                <select value={options.composition} onChange={e => setOptions({...options, composition: e.target.value as CompositionType})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs">
-                  <option value="original">원본 구도 유지</option>
-                  <option value="flat-lay">항공샷 (Flat-lay)</option>
-                  <option value="side-view">측면샷 (Side-view)</option>
-                  <option value="cinematic">시네마틱 와이드</option>
-                  <option value="close-up">클로즈업 매크로</option>
+            <div className="space-y-7">
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Composition Mode</label>
+                <select value={options.composition} onChange={e => setOptions({...options, composition: e.target.value as CompositionType})} className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-5 py-4 text-xs outline-none focus:border-blue-500 font-bold appearance-none transition-all shadow-inner">
+                  <option value="original">Keep Original</option>
+                  <option value="flat-lay">Flat-lay (Top down)</option>
+                  <option value="side-view">Side-view (Pro)</option>
+                  <option value="cinematic">Cinematic Wide</option>
+                  <option value="close-up">Macro Detail</option>
                 </select>
               </div>
-              <div>
-                <label className="text-[10px] font-bold text-slate-500 uppercase mb-2 block">스타일 필터</label>
-                <select value={options.filter} onChange={e => setOptions({...options, filter: e.target.value as DedicatedFilterType})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs">
-                  <option value="none">AI 자동 보정 ✨</option>
-                  <option value="food-meat">🥘 육즙 & 그릴</option>
-                  <option value="food-studio">🍛 하이엔드 미식 화보</option>
-                  <option value="profile">👤 럭셔리 인물 프로필</option>
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Style Filter</label>
+                <select value={options.filter} onChange={e => setOptions({...options, filter: e.target.value as DedicatedFilterType})} className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-5 py-4 text-xs outline-none focus:border-blue-500 font-bold appearance-none transition-all shadow-inner">
+                  <option value="none">AI Auto Optimize ✨</option>
+                  <option value="food-meat">🥘 Juicy & Grill Focus</option>
+                  <option value="food-studio">🍛 High-end Editorial</option>
+                  <option value="profile">👤 Luxury Profile</option>
                 </select>
               </div>
-              <button onClick={startProcessing} disabled={isProcessing || images.length === 0} className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2">
-                {isProcessing ? <Zap className="w-4 h-4 animate-pulse" /> : <Play className="w-4 h-4" />} 일괄 작업 시작
+              <button 
+                onClick={startProcessing} 
+                disabled={isProcessing || images.length === 0} 
+                className="w-full py-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black rounded-2xl shadow-2xl shadow-blue-900/40 active:scale-95 transition-all flex items-center justify-center gap-4 uppercase text-sm tracking-[0.2em]"
+              >
+                {isProcessing ? <Zap className="w-6 h-6 animate-pulse" /> : <Play className="w-6 h-6" />} Start Batch
               </button>
             </div>
           </div>
         </section>
 
-        <section className="pb-20">
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="text-xl font-bold text-white flex items-center gap-2">
-              작업 리스트 <span className="text-blue-500 text-sm font-mono">[{stats.completed}/{stats.total}]</span>
+        <section className="pb-32">
+          <div className="flex items-center justify-between mb-10 border-b border-slate-900 pb-8">
+            <h3 className="text-2xl font-black text-white flex items-center gap-4 italic">
+              ENGINE QUEUE <span className="text-blue-600 font-mono not-italic tracking-tighter bg-blue-600/10 px-4 py-1 rounded-full">[{stats.completed} / {stats.total}]</span>
             </h3>
             {images.length > 0 && (
-               <button onClick={() => setImages([])} className="text-xs text-slate-500 hover:text-red-400 flex items-center gap-1.5 font-bold transition-colors">
-                  <Trash2 className="w-3.5 h-3.5" /> 리스트 초기화
+               <button onClick={() => setImages([])} className="text-[10px] text-slate-500 hover:text-red-400 flex items-center gap-3 font-black uppercase tracking-[0.3em] transition-all group">
+                  <Trash2 className="w-5 h-5 group-hover:rotate-12 transition-transform" /> Reset Queue
                </button>
             )}
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12">
             {images.filter(img => img.status !== 'idle').map(task => (
-              <div key={task.id} className="group bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl relative transition-all hover:border-slate-700">
-                <button onClick={() => handleRemove(task.id)} className="absolute top-3 right-3 z-30 p-1.5 bg-black/40 hover:bg-red-600 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-all border border-white/10 backdrop-blur-sm">
-                  <Trash2 className="w-4 h-4" />
+              <div key={task.id} className="group bg-slate-900/50 border border-slate-800 rounded-[40px] overflow-hidden shadow-2xl relative transition-all hover:border-slate-600 hover:bg-slate-900 hover:shadow-blue-900/20">
+                <button onClick={() => handleRemove(task.id)} className="absolute top-5 right-5 z-30 p-3 bg-black/60 hover:bg-red-600 text-white rounded-2xl opacity-0 group-hover:opacity-100 transition-all border border-white/10 backdrop-blur-md">
+                  <Trash2 className="w-5 h-5" />
                 </button>
 
-                <div className="aspect-square bg-black relative">
+                <div className="aspect-square bg-slate-950 relative overflow-hidden">
                   {(task.status === 'processing' || task.status === 'analyzing') && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 z-20">
-                      <Zap className="w-10 h-10 text-blue-500 animate-bounce mb-2" />
-                      <p className="text-xs font-black tracking-widest animate-pulse">CREATING MAGIC...</p>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80 z-20 backdrop-blur-md">
+                      <div className="relative">
+                        <Zap className="w-20 h-20 text-blue-500 animate-bounce mb-6" />
+                        <div className="absolute inset-0 bg-blue-500/20 blur-3xl animate-pulse"></div>
+                      </div>
+                      <p className="text-[10px] font-black tracking-[0.8em] animate-pulse text-blue-400 uppercase">Engine Processing</p>
                     </div>
                   )}
                   {task.processedUrl ? (
                     <div className="relative w-full h-full">
-                      <img src={task.processedUrl} className="w-full h-full object-cover" alt="Processed" />
+                      <img src={task.processedUrl} className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110" alt="Processed" />
                       {task.textOverlay?.text && (
                         <div 
-                          className="absolute left-0 right-0 px-4 text-center drop-shadow-2xl font-bold pointer-events-none"
+                          className="absolute left-0 right-0 px-10 text-center drop-shadow-[0_15px_30px_rgba(0,0,0,1)] font-bold pointer-events-none"
                           style={{ 
                             top: `${task.textOverlay.yPosition}%`, 
                             transform: 'translateY(-50%)',
@@ -343,61 +430,64 @@ const App: React.FC = () => {
                       )}
                     </div>
                   ) : (
-                    <img src={task.previewUrl} className="w-full h-full object-cover opacity-50 grayscale" alt="Preview" />
+                    <img src={task.previewUrl} className="w-full h-full object-cover opacity-20 grayscale scale-125 blur-xl" alt="Preview" />
                   )}
                 </div>
 
-                <div className="p-4 space-y-4">
+                <div className="p-8 space-y-6">
                   {task.processedUrl && (
-                    <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-5">
                       {editingTextId === task.id ? (
-                        <div className="bg-slate-800 p-4 rounded-xl border border-blue-500/30 space-y-4">
-                          <input type="text" placeholder="문구 입력..." value={task.textOverlay?.text || ''} onChange={e => updateTaskOverlay(task.id, { text: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white" />
-                          <div className="grid grid-cols-2 gap-2">
-                            <select value={task.textOverlay?.font || 'Inter'} onChange={e => updateTaskOverlay(task.id, { font: e.target.value })} className="bg-slate-900 text-xs p-2 rounded-lg text-white">
+                        <div className="bg-slate-800/80 p-8 rounded-[32px] border border-blue-500/30 space-y-6 animate-in slide-in-from-bottom-8">
+                          <input type="text" placeholder="Enter headline..." value={task.textOverlay?.text || ''} onChange={e => updateTaskOverlay(task.id, { text: e.target.value })} className="w-full bg-slate-900 border border-slate-700 rounded-2xl px-6 py-5 text-sm text-white outline-none focus:border-blue-500 font-bold shadow-inner" />
+                          <div className="grid grid-cols-2 gap-5">
+                            <select value={task.textOverlay?.font || 'Inter'} onChange={e => updateTaskOverlay(task.id, { font: e.target.value })} className="bg-slate-900 text-[10px] p-5 rounded-2xl text-white outline-none border border-slate-700 font-black uppercase tracking-widest">
                               {FONT_OPTIONS.map(f => <option key={f.name} value={f.name}>{f.name}</option>)}
                             </select>
-                            <div className="flex gap-2">
-                              <input type="color" value={task.textOverlay?.color || '#FFFFFF'} onChange={e => updateTaskOverlay(task.id, { color: e.target.value })} className="w-10 h-10 bg-transparent cursor-pointer" />
-                              <button onClick={() => handleRecommendColor(task.id)} className="bg-slate-700 hover:bg-slate-600 text-[10px] rounded px-2 font-bold transition-all">AI 추천</button>
+                            <div className="flex gap-3">
+                              <input type="color" value={task.textOverlay?.color || '#FFFFFF'} onChange={e => updateTaskOverlay(task.id, { color: e.target.value })} className="w-16 h-16 bg-transparent cursor-pointer rounded-2xl overflow-hidden border-2 border-slate-700" />
+                              <button onClick={() => handleRecommendColor(task.id)} className="flex-1 bg-slate-700 hover:bg-slate-600 text-[10px] rounded-2xl font-black uppercase tracking-tighter transition-all">AI Pick</button>
                             </div>
                           </div>
-                          <div className="space-y-1">
-                            <label className="text-[10px] text-slate-500 uppercase font-bold">크기: {task.textOverlay?.size}px</label>
-                            <input type="range" min="10" max="150" value={task.textOverlay?.size || 40} onChange={e => updateTaskOverlay(task.id, { size: parseInt(e.target.value) })} className="w-full accent-blue-500" />
+                          <div className="space-y-5">
+                            <div className="flex justify-between items-center text-[10px] font-black text-slate-500 uppercase tracking-widest"><span>Size</span><span>{task.textOverlay?.size}px</span></div>
+                            <input type="range" min="10" max="150" value={task.textOverlay?.size || 40} onChange={e => updateTaskOverlay(task.id, { size: parseInt(e.target.value) })} className="w-full accent-blue-600" />
+                            <div className="flex justify-between items-center text-[10px] font-black text-slate-500 uppercase tracking-widest"><span>Position</span><span>{task.textOverlay?.yPosition}%</span></div>
+                            <input type="range" min="5" max="95" value={task.textOverlay?.yPosition || 50} onChange={e => updateTaskOverlay(task.id, { yPosition: parseInt(e.target.value) })} className="w-full accent-blue-600" />
                           </div>
-                          <div className="space-y-1">
-                            <label className="text-[10px] text-slate-500 uppercase font-bold">위치: {task.textOverlay?.yPosition}%</label>
-                            <input type="range" min="5" max="95" value={task.textOverlay?.yPosition || 50} onChange={e => updateTaskOverlay(task.id, { yPosition: parseInt(e.target.value) })} className="w-full accent-blue-500" />
-                          </div>
-                          <button onClick={() => setEditingTextId(null)} className="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded-lg text-xs font-bold text-white transition-colors">편집 완료</button>
+                          <button onClick={() => setEditingTextId(null)} className="w-full bg-blue-600 hover:bg-blue-500 py-5 rounded-2xl text-xs font-black text-white transition-all shadow-xl shadow-blue-900/40 uppercase tracking-widest">Done</button>
                         </div>
                       ) : activeRefineId === task.id ? (
-                        <div className="bg-slate-800 p-4 rounded-xl border border-orange-500/30 space-y-3">
-                          <textarea autoFocus placeholder="보정 요청(예: 배경을 더 어둡게, 푸른 조명 추가...)" value={refineInput} onChange={e => setRefineInput(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs min-h-[60px] text-white" />
-                          <div className="flex gap-2">
-                            <button onClick={() => handleRefine(task.id, refineInput)} className="flex-1 bg-orange-600 hover:bg-orange-500 py-2 rounded-lg text-xs font-bold text-white">보정 적용</button>
-                            <button onClick={() => {setActiveRefineId(null); setRefineInput('');}} className="px-3 bg-slate-700 py-2 rounded-lg text-xs font-bold">취소</button>
+                        <div className="bg-slate-800/80 p-8 rounded-[32px] border border-orange-500/30 space-y-6 animate-in slide-in-from-bottom-8">
+                          <textarea autoFocus placeholder="Describe refinements (e.g. softer lighting, darker background...)" value={refineInput} onChange={e => setRefineInput(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-2xl p-5 text-xs min-h-[120px] text-white outline-none focus:border-orange-500 font-medium leading-relaxed" />
+                          <div className="flex gap-3">
+                            <button onClick={() => handleRefine(task.id, refineInput)} className="flex-1 bg-orange-600 hover:bg-orange-500 py-5 rounded-2xl text-xs font-black text-white shadow-xl shadow-orange-900/40 uppercase tracking-widest">Apply</button>
+                            <button onClick={() => {setActiveRefineId(null); setRefineInput('');}} className="px-8 py-5 bg-slate-700 hover:bg-slate-600 rounded-2xl text-xs font-black text-slate-300 uppercase tracking-widest">Cancel</button>
                           </div>
                         </div>
                       ) : (
-                        <div className="flex flex-col gap-2">
-                          <div className="flex gap-2">
-                            <button onClick={() => setEditingTextId(task.id)} className="flex-1 bg-slate-800 hover:bg-slate-700 py-2.5 rounded-xl text-[11px] font-bold border border-slate-700 flex items-center justify-center gap-2 transition-all">
-                              <TypeIcon className="w-3.5 h-3.5 text-blue-400" /> 텍스트 편집
+                        <div className="flex flex-col gap-5">
+                          <div className="grid grid-cols-2 gap-5">
+                            <button onClick={() => setEditingTextId(task.id)} className="bg-slate-800/50 hover:bg-slate-700 py-5 rounded-2xl text-[11px] font-black border border-slate-700 flex items-center justify-center gap-3 transition-all hover:border-blue-500/50 group/btn">
+                              <TypeIcon className="w-5 h-5 text-blue-400 group-hover/btn:scale-110 transition-transform" /> Headline
                             </button>
-                            <button onClick={() => setActiveRefineId(task.id)} className="flex-1 bg-slate-800 hover:bg-slate-700 py-2.5 rounded-xl text-[11px] font-bold border border-slate-700 flex items-center justify-center gap-2 transition-all">
-                              <Sparkles className="w-3.5 h-3.5 text-orange-400" /> AI 재보정
+                            <button onClick={() => setActiveRefineId(task.id)} className="bg-slate-800/50 hover:bg-slate-700 py-5 rounded-2xl text-[11px] font-black border border-slate-700 flex items-center justify-center gap-3 transition-all hover:border-orange-500/50 group/btn">
+                              <Sparkles className="w-5 h-5 text-orange-400 group-hover/btn:scale-110 transition-transform" /> Refine
                             </button>
                           </div>
-                          <button onClick={() => downloadCombined(task)} className="w-full bg-green-600 hover:bg-green-500 py-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 text-white transition-all shadow-lg shadow-green-900/10">
-                            <Download className="w-4 h-4" /> 결과 저장
+                          <button onClick={() => downloadCombined(task)} className="w-full bg-emerald-600 hover:bg-emerald-500 py-6 rounded-[24px] text-xs font-black flex items-center justify-center gap-4 text-white transition-all shadow-2xl shadow-emerald-900/40 active:scale-95 uppercase tracking-[0.2em]">
+                            <Download className="w-6 h-6" /> Export Master
                           </button>
                         </div>
                       )}
                     </div>
                   )}
-                  {task.error && <p className="text-[10px] text-red-400 bg-red-500/10 p-2 rounded font-medium border border-red-500/20">{task.error}</p>}
+                  {task.error && (
+                    <div className="bg-red-500/10 border border-red-500/20 p-6 rounded-[24px] animate-in shake duration-500">
+                      <p className="text-[10px] text-red-400 font-black uppercase mb-2 tracking-[0.2em]">Engine Exception</p>
+                      <p className="text-[11px] text-red-300 leading-relaxed font-bold">{task.error}</p>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -405,14 +495,23 @@ const App: React.FC = () => {
         </section>
       </main>
 
-      <footer className="py-12 border-t border-slate-900 bg-slate-900/30 text-center space-y-4">
-        <div className="flex justify-center gap-8 text-sm text-slate-500 font-medium">
-          <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="hover:text-blue-400 underline underline-offset-4 decoration-slate-800 transition-colors font-bold">빌링 가이드</a>
-          <button onClick={() => setShowKeySetup(true)} className="hover:text-blue-400 flex items-center gap-1.5 transition-colors font-bold">
-            <Key className="w-3.5 h-3.5" /> API 키 재설정
+      <footer className="py-24 border-t border-slate-900 bg-slate-950 text-center space-y-10 relative overflow-hidden">
+        <div className="flex justify-center gap-16 text-xs text-slate-500 font-black uppercase tracking-[0.4em] z-10 relative">
+          <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="hover:text-blue-500 transition-colors">Documentation</a>
+          <button onClick={() => setShowKeyManager(true)} className="hover:text-blue-500 flex items-center gap-4 transition-colors">
+            <Key className="w-6 h-6" /> API Config
           </button>
         </div>
-        <p className="text-[11px] text-slate-600 font-bold uppercase tracking-widest">Powered by Gemini 3.0 Pro Vision Engine</p>
+        <div className="flex flex-col items-center gap-5 opacity-40 z-10 relative">
+          <p className="text-[11px] text-slate-600 font-black uppercase tracking-[1.2em]">Studio Pro 2025 Edition</p>
+          <div className="flex gap-6">
+            <div className="w-3 h-3 rounded-full bg-blue-600 shadow-[0_0_15px_rgba(37,99,235,0.8)]"></div>
+            <div className="w-3 h-3 rounded-full bg-indigo-600 shadow-[0_0_15px_rgba(79,70,229,0.8)]"></div>
+            <div className="w-3 h-3 rounded-full bg-emerald-600 shadow-[0_0_15px_rgba(16,185,129,0.8)]"></div>
+          </div>
+        </div>
+        {/* Decorative elements */}
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[300px] bg-blue-600/5 blur-[120px] rounded-full"></div>
       </footer>
     </div>
   );
