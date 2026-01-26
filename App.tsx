@@ -7,7 +7,7 @@ import { analyzeImageCategory, transformImage, recommendTextColor, fileToBase64,
 import { 
   Play, Zap, Settings, Trash2, Download, Send, Type as TypeIcon, 
   Sparkles, Key, X, Info, ExternalLink, CheckCircle, ShieldAlert, 
-  Database, Save, FileUp, Loader2, AlertTriangle, ShieldCheck 
+  Database, Save, FileUp, Loader2, AlertTriangle, ShieldCheck, Heart
 } from 'lucide-react';
 
 const FONT_OPTIONS = [
@@ -30,6 +30,7 @@ const App: React.FC = () => {
   const [showKeyManager, setShowKeyManager] = useState(false);
   const [tempKey, setTempKey] = useState('');
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
+  const [testErrorMessage, setTestErrorMessage] = useState('');
   const [isAistudioEnv, setIsAistudioEnv] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -37,7 +38,7 @@ const App: React.FC = () => {
     composition: 'original',
     zoom: 'none',
     filter: 'none',
-    resolution: '1500' 
+    resolution: '1000' // 무료 키 호환성을 위해 기본을 1000px(1K)로 설정
   });
 
   // 초기 로드 시 키 확인
@@ -53,7 +54,6 @@ const App: React.FC = () => {
           setTempKey(atob(saved));
         } catch (e) {}
       } else if (!hasSystemKey) {
-        // AI Studio 환경이 아니고 키가 없으면 자동으로 설정창 띄움
         setTimeout(() => setShowKeyManager(true), 500);
       }
     };
@@ -63,8 +63,14 @@ const App: React.FC = () => {
   const handleTestKey = async () => {
     if (!tempKey.trim()) return;
     setTestStatus('testing');
-    const ok = await testConnection(tempKey.trim());
-    setTestStatus(ok ? 'success' : 'failed');
+    setTestErrorMessage('');
+    const result = await testConnection(tempKey.trim());
+    if (result.success) {
+      setTestStatus('success');
+    } else {
+      setTestStatus('failed');
+      setTestErrorMessage(result.message || '인증 실패');
+    }
   };
 
   const saveToLocal = () => {
@@ -83,7 +89,8 @@ const App: React.FC = () => {
     const config = {
       key: btoa(tempKey),
       created_at: new Date().toISOString(),
-      provider: "Google Gemini"
+      provider: "Google Gemini",
+      tier: "Free/Paid Compatible"
     };
     const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -240,14 +247,17 @@ const App: React.FC = () => {
                 </div>
                 <div>
                   <h2 className="text-3xl font-black tracking-tight">외부 API 보안 매니저</h2>
-                  <p className="text-blue-100/80 text-sm font-medium mt-1">사용자 지정 API 키로 기능을 활성화합니다.</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-blue-100/80 text-sm font-medium">사용자 지정 API 키 연동</p>
+                    <span className="px-2 py-0.5 bg-green-500/20 border border-green-500/30 rounded text-[10px] font-black text-green-400 uppercase tracking-tighter flex items-center gap-1">
+                      <Heart className="w-2.5 h-2.5 fill-current" /> Free Tier Supported
+                    </span>
+                  </div>
                 </div>
               </div>
               <button onClick={() => setShowKeyManager(false)} className="p-2 hover:bg-black/10 rounded-full transition-colors z-10">
                 <X className="w-8 h-8" />
               </button>
-              {/* Decorative Background Element */}
-              <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-white/5 rounded-full blur-3xl"></div>
             </div>
 
             {/* Body */}
@@ -259,7 +269,7 @@ const App: React.FC = () => {
                     <Database className="w-4 h-4 text-blue-500" /> Gemini API KEY (AIza...)
                   </label>
                   <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-400 font-bold hover:underline flex items-center gap-1">
-                    키 무료 발급받기 <ExternalLink className="w-3 h-3" />
+                    무료 키 발급받기 <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
                 <div className="relative group">
@@ -267,7 +277,7 @@ const App: React.FC = () => {
                     type="password"
                     placeholder="여기에 API 키를 붙여넣으세요"
                     value={tempKey}
-                    onChange={(e) => {setTempKey(e.target.value); setTestStatus('idle');}}
+                    onChange={(e) => {setTempKey(e.target.value); setTestStatus('idle'); setTestErrorMessage('');}}
                     className="w-full bg-slate-800/50 border-2 border-slate-700/50 rounded-2xl px-7 py-6 text-white focus:border-blue-500 outline-none transition-all placeholder:text-slate-600 font-mono text-lg shadow-inner"
                   />
                   <div className="absolute right-5 top-1/2 -translate-y-1/2 flex items-center gap-3">
@@ -276,6 +286,12 @@ const App: React.FC = () => {
                     {testStatus === 'failed' && <div className="p-1.5 bg-red-500/20 rounded-full"><AlertTriangle className="w-6 h-6 text-red-500 animate-bounce" /></div>}
                   </div>
                 </div>
+                
+                {testErrorMessage && (
+                   <div className="text-[11px] text-red-400 font-bold bg-red-500/10 border border-red-500/20 p-3 rounded-xl flex items-center gap-2">
+                     <AlertTriangle className="w-3.5 h-3.5" /> {testErrorMessage}
+                   </div>
+                )}
                 
                 <div className="grid grid-cols-2 gap-4">
                   <button 
@@ -321,7 +337,7 @@ const App: React.FC = () => {
                 <div className="space-y-1">
                    <p className="text-xs font-black uppercase tracking-widest">Security Notice</p>
                    <p className="text-[11px] leading-relaxed font-medium text-amber-100/70">
-                    본 앱은 외장형 키 관리 모델을 따릅니다. 사용자의 키는 어떤 서버로도 전송되지 않으며, 오직 브라우저의 로컬 보안 영역에만 저장됩니다.
+                    본 앱은 무료 키 사용 시 호출 제한(RPM)이 적용될 수 있습니다. 대량 작업 시 변환 오류가 발생하면 잠시 후 다시 시도하시거나 유료 키 사용을 권장합니다.
                   </p>
                 </div>
               </div>
@@ -343,7 +359,7 @@ const App: React.FC = () => {
         <section className="mb-12 flex flex-col lg:flex-row gap-8">
           <div className="flex-1">
             <h2 className="text-5xl font-black text-white mb-2 uppercase tracking-tighter leading-none italic">Studio <span className="text-blue-600">Re-Imagined</span></h2>
-            <p className="text-slate-400 mb-8 font-bold font-mono text-sm tracking-widest opacity-60">PRO BATCH TRANSFORMATION ENGINE v2.5</p>
+            <p className="text-slate-400 mb-8 font-bold font-mono text-sm tracking-widest opacity-60">PRO BATCH TRANSFORMATION ENGINE v2.5 (Free Tier Support)</p>
             <ImageUploader onUpload={handleUpload} count={images.length} disabled={isProcessing} />
           </div>
           
@@ -369,6 +385,14 @@ const App: React.FC = () => {
                   <option value="food-meat">🥘 Juicy & Grill Focus</option>
                   <option value="food-studio">🍛 High-end Editorial</option>
                   <option value="profile">👤 Luxury Profile</option>
+                </select>
+              </div>
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Resolution Tier</label>
+                <select value={options.resolution} onChange={e => setOptions({...options, resolution: e.target.value as any})} className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-5 py-4 text-xs outline-none focus:border-blue-500 font-bold appearance-none transition-all shadow-inner">
+                  <option value="1000">1K (Free Tier Friendly)</option>
+                  <option value="1500">1.5K (Balanced)</option>
+                  <option value="2000">2K (Paid/Pro Req.)</option>
                 </select>
               </div>
               <button 
