@@ -1,6 +1,6 @@
 {
-  "name": "thank-studio",
-  "description": "사용자 API 키 연동형 전문가급 AI 사진 변환 및 텍스트 편집 도구",
+  "name": "thank-studio-pro 변경.",
+  "description": "전문가급 AI 사진 변환 및 광고 편집 도구",
   "requestFramePermissions": [
     "camera"
   ]

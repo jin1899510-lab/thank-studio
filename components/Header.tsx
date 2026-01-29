@@ -1,12 +1,13 @@
 
 import React from 'react';
-import { Sparkles, ShieldCheck, Key, Zap } from 'lucide-react';
+import { ShieldCheck, Zap, Settings, Key, AlertCircle } from 'lucide-react';
 
 interface HeaderProps {
-  onKeyClick: () => void;
+  onOpenSettings: () => void;
+  isKeyValid: boolean | null;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onKeyClick }) => {
+export const Header: React.FC<HeaderProps> = ({ onOpenSettings, isKeyValid }) => {
   return (
     <header className="border-b border-slate-800 bg-slate-950/80 backdrop-blur-xl sticky top-0 z-[100]">
       <div className="max-w-7xl mx-auto px-6 py-5 flex justify-between items-center">
@@ -14,7 +15,7 @@ export const Header: React.FC<HeaderProps> = ({ onKeyClick }) => {
           <div className="p-3 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl shadow-2xl shadow-blue-500/20">
             <Zap className="w-7 h-7 text-white" />
           </div>
-          <div className="hidden sm:block">
+          <div>
             <h1 className="text-2xl font-black text-white italic tracking-tighter">
               STUDIO <span className="text-blue-600">RE-IMAGINED</span>
             </h1>
@@ -23,16 +24,25 @@ export const Header: React.FC<HeaderProps> = ({ onKeyClick }) => {
         </div>
 
         <div className="flex items-center gap-4">
-          <button 
-            onClick={onKeyClick}
-            className="flex items-center gap-3 px-5 py-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-2xl transition-all group"
-          >
-            <Key className="w-4 h-4 text-blue-500 group-hover:rotate-12 transition-transform" />
-            <span className="text-[11px] font-black text-slate-300 uppercase tracking-widest hidden md:inline">API 키 설정 및 관리</span>
-          </button>
-          <div className="p-3 bg-blue-500/10 text-blue-500 rounded-2xl border border-blue-500/20">
-             <ShieldCheck className="w-5 h-5" />
+          <div className={`hidden md:flex items-center gap-2 px-4 py-2 border rounded-xl transition-all ${
+            isKeyValid === true ? 'bg-emerald-500/10 border-emerald-500/30' : 
+            isKeyValid === false ? 'bg-red-500/10 border-red-500/30' : 'bg-slate-900 border-slate-800'
+          }`}>
+            {isKeyValid === true ? <ShieldCheck className="w-4 h-4 text-emerald-500" /> : 
+             isKeyValid === false ? <AlertCircle className="w-4 h-4 text-red-500" /> : <Key className="w-4 h-4 text-slate-500" />}
+            <span className={`text-[10px] font-black uppercase tracking-widest ${
+              isKeyValid === true ? 'text-emerald-500' : isKeyValid === false ? 'text-red-500' : 'text-slate-400'
+            }`}>
+              {isKeyValid === true ? 'Authenticated' : isKeyValid === false ? 'Key Error' : 'Set API Key'}
+            </span>
           </div>
+          
+          <button 
+            onClick={onOpenSettings}
+            className="p-3 hover:bg-slate-800 rounded-xl transition-colors text-slate-400 hover:text-white border border-slate-800"
+          >
+            <Settings className="w-5 h-5" />
+          </button>
         </div>
       </div>
     </header>
