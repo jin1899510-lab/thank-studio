@@ -1,0 +1,27 @@
+name: Meta 광고 성과 카카오톡 리포트
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # 매일 오전 9시 (KST)
+  workflow_dispatch:
+    inputs:
+      date_preset:
+        description: '조회 기간 (yesterday, today, last_7d 등)'
+        default: 'yesterday'
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/meta-kakao-report/report.mjs
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          META_AD_ACCOUNT_ID: ${{ secrets.META_AD_ACCOUNT_ID }}
+          KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
+          KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
+          KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
+          DATE_PRESET: ${{ inputs.date_preset || 'yesterday' }}
