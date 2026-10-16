@@ -219,16 +219,22 @@ class Publisher:
         if mime_p and mime_p != name_p:
             args[mime_p] = mime
         if data_p and data_p not in (name_p, mime_p):
+            if os.path.getsize(path) > 200 * 1024 * 1024:
+                raise MirraError("Mirra 업로드 방식상 200MB가 넘는 영상은 한 번에 보낼 수 없습니다. "
+                                 "`python mirra_app.py tools` 결과를 보내 주시면 큰 파일 업로드 방식을 맞춰 드립니다.")
             with open(path, "rb") as f:
                 args[data_p] = base64.b64encode(f.read()).decode()
         res = self.client.call(tool["name"], args)
         # 업로드용 주소(presigned URL)를 돌려주는 방식이면 파일을 그 주소로 PUT
         put_url = first_value(res, "upload_url", "uploadUrl", "presigned_url", "signedUrl")
         if put_url and not data_p:
-            with open(path, "rb") as f:
-                req = urllib.request.Request(put_url, f.read(), {"Content-Type": mime}, method="PUT")
+            # 큰 파일도 메모리에 한 번에 올리지 않고 파일에서 바로 흘려보냄
+            size = os.path.getsize(path)
             try:
-                urllib.request.urlopen(req, timeout=600).close()
+                with open(path, "rb") as f:
+                    req = urllib.request.Request(put_url, f, {"Content-Type": mime, "Content-Length": str(size)},
+                                                 method="PUT")
+                    urllib.request.urlopen(req, timeout=max(600, size // 200_000)).close()
             except urllib.error.URLError as e:
                 raise MirraError(f"영상 업로드 실패: {e}")
             confirm = self.cfg.get("tools", {}).get("upload_complete")
