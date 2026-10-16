@@ -60,6 +60,14 @@ function buildCard(card) {
     </div>
     <div class="mini-steps" data-el="dots"></div>
     <p class="card-msg muted small" data-el="msg"></p>
+    <div class="card-accounts" data-el="accountsBox" hidden>
+      <div class="card-accounts-head">
+        <h3>발행 계정</h3>
+        <span class="pill custom" data-el="customPill" hidden>개별 설정</span>
+        <button type="button" class="link" data-el="resetAccounts" hidden>공통 설정으로 되돌리기</button>
+      </div>
+      <div class="chips" data-el="accounts"></div>
+    </div>
     <div class="card-body" data-el="body" hidden>
       <video src="${card.url}" controls muted data-el="video"></video>
       <div class="card-fields">
@@ -102,6 +110,17 @@ function buildCard(card) {
     } finally {
       e.target.disabled = card.locked;
     }
+  });
+  card.q('accounts').addEventListener('change', () => {
+    card.customAccounts = true;
+    syncCustomMark(card);
+    updateAction();
+  });
+  card.q('resetAccounts').addEventListener('click', () => {
+    card.customAccounts = false;
+    applyAccounts(card, commonAccountIds());
+    syncCustomMark(card);
+    updateAction();
   });
   card.q('textOn').addEventListener('change', (e) => {
     card.q('text').disabled = !e.target.checked;
@@ -258,6 +277,12 @@ async function uploadAll() {
   renderAccounts(defaults);
 }
 
+function accountLabel(a, small = false) {
+  return `<span class="badge ${escapeHtml(a.platform)}">${escapeHtml(a.platformLabel)}</span>
+      <span>@${escapeHtml(a.username)}${!small && a.displayName && a.displayName !== a.username ? ` <small>${escapeHtml(a.displayName)}</small>` : ''}</span>`;
+}
+
+// 8단계: 공통 계정(기본값) + 영상별 계정
 function renderAccounts(defaultIds) {
   $('panel-accounts').hidden = false;
   if (!accounts.length) {
@@ -265,14 +290,36 @@ function renderAccounts(defaultIds) {
     return;
   }
   $('accounts').innerHTML = accounts
-    .map((a) => `<label class="account"><input type="checkbox" value="${escapeHtml(a.id)}" ${defaultIds.includes(a.id) ? 'checked' : ''} />
-      <span class="badge ${escapeHtml(a.platform)}">${escapeHtml(a.platformLabel)}</span>
-      <span>@${escapeHtml(a.username)}${a.displayName && a.displayName !== a.username ? ` <small>${escapeHtml(a.displayName)}</small>` : ''}</span></label>`)
+    .map((a) => `<label class="account"><input type="checkbox" value="${escapeHtml(a.id)}" ${defaultIds.includes(a.id) ? 'checked' : ''} />${accountLabel(a)}</label>`)
     .join('');
-  $('accounts').onchange = updateAction;
+  // 공통 선택을 바꾸면 "개별 설정"하지 않은 영상에 그대로 반영
+  $('accounts').onchange = () => {
+    for (const card of cards.filter((c) => c.status === 'uploaded' && !c.customAccounts)) applyAccounts(card, commonAccountIds());
+    updateAction();
+  };
+  for (const card of cards.filter((c) => c.status === 'uploaded')) {
+    card.q('accounts').innerHTML = accounts
+      .map((a) => `<label class="chip"><input type="checkbox" value="${escapeHtml(a.id)}" />${accountLabel(a, true)}</label>`)
+      .join('');
+    card.q('accountsBox').hidden = false;
+    applyAccounts(card, defaultIds);
+  }
 }
 
-const selectedAccountIds = () => [...document.querySelectorAll('#accounts input:checked')].map((el) => el.value);
+const commonAccountIds = () => [...document.querySelectorAll('#accounts input:checked')].map((el) => el.value);
+const cardAccountIds = (card) => [...card.q('accounts').querySelectorAll('input:checked')].map((el) => el.value);
+
+function applyAccounts(card, ids) {
+  card.q('accounts').querySelectorAll('input').forEach((el) => (el.checked = ids.includes(el.value)));
+}
+
+function syncCustomMark(card) {
+  card.q('customPill').hidden = !card.customAccounts;
+  card.q('resetAccounts').hidden = !card.customAccounts;
+}
+
+// 계정을 하나도 고르지 않은 영상
+const cardsWithoutAccounts = () => cards.filter((c) => c.status === 'uploaded' && !cardAccountIds(c).length);
 
 function postText(card) {
   const tags = card.q('hashtags').value.split(/[\s,]+/).filter(Boolean).map((t) => (t.startsWith('#') ? t : `#${t}`));
@@ -281,10 +328,12 @@ function postText(card) {
 
 // 7~9단계: 본문 입력 → 계정별 초안 생성 → Mirra 에 저장된 내용으로 최종 확인
 async function draftAll() {
-  const accountIds = selectedAccountIds();
-  if (!accountIds.length) throw new Error('발행할 계정을 하나 이상 선택하세요.');
-  document.querySelectorAll('#accounts input').forEach((el) => (el.disabled = true));
+  const missing = cardsWithoutAccounts();
+  if (missing.length) throw new Error(`발행 계정을 고르지 않은 영상이 있습니다: ${missing.map((c) => c.file.name).join(', ')}`);
+  document.querySelectorAll('#accounts input, .chips input').forEach((el) => (el.disabled = true));
+  document.querySelectorAll('[data-el="resetAccounts"]').forEach((el) => (el.hidden = true));
   await runPool(cards.filter((c) => c.status === 'uploaded'), 1, (card) => tracked(card, async () => {
+    const accountIds = cardAccountIds(card);
     setStatus(card, 'drafting', '게시물을 준비하는 중…');
     const { drafts } = await api(`/api/jobs/${card.jobId}/drafts`, {
       body: { text: postText(card), accountIds, youtubeTitle: card.q('youtubeTitle').value },
@@ -335,7 +384,7 @@ async function publishAll() {
 const ACTIONS = {
   select: { label: (n) => `모두 분석 시작 (${n}개)`, busy: '분석 중…', next: 'analyzed', run: analyzeAll, ready: () => cards.some((c) => c.status === 'pending') },
   analyzed: { label: (n) => `모두 Mirra 접속 및 업로드 (${n}개)`, busy: 'Mirra 업로드 중…', next: 'uploaded', run: uploadAll, ready: () => cards.some((c) => c.status === 'analyzed') },
-  uploaded: { label: (n) => `최종 내용 확인으로 (${n}개)`, busy: '게시물 준비 중…', next: 'review', run: draftAll, ready: () => cards.some((c) => c.status === 'uploaded') && selectedAccountIds().length > 0 },
+  uploaded: { label: (n) => `최종 내용 확인으로 (${n}개)`, busy: '게시물 준비 중…', next: 'review', run: draftAll, ready: () => cards.some((c) => c.status === 'uploaded') && !cardsWithoutAccounts().length },
   review: { label: (n) => `모두 지금 발행 (${n}개 영상)`, busy: '발행 중…', next: 'done', run: publishAll, ready: () => cards.some((c) => c.status === 'review') && $('confirmCheck').checked },
   done: { label: () => '새로 시작', run: async () => location.reload(), ready: () => true },
 };
@@ -357,7 +406,9 @@ function updateAction() {
   const hints = {
     select: '영상을 더 추가할 수 있습니다.',
     analyzed: '캡션·해시태그·썸네일을 영상마다 확인하고 고치세요. 실패한 영상은 건너뜁니다.',
-    uploaded: '발행할 계정을 고르세요.',
+    uploaded: cardsWithoutAccounts().length
+      ? `⚠ 계정을 고르지 않은 영상 ${cardsWithoutAccounts().length}개 — 영상 카드에서 계정을 고르거나 ✕로 빼세요.`
+      : '공통 계정이 모든 영상에 적용됩니다. 영상마다 다르게 하려면 각 카드에서 바꾸세요.',
     review: 'Mirra 에서 보기 링크로 초안을 확인한 뒤 발행하세요.',
     done: '',
   };
