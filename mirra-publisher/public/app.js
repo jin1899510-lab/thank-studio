@@ -220,6 +220,6 @@ $('btnRestart').addEventListener('click', () => location.reload());
   renderSteps();
   const missing = [!status.geminiReady && 'GEMINI_API_KEY', !status.mirraReady && 'MIRRA_API_KEY'].filter(Boolean);
   $('keyStatus').innerHTML = missing.length
-    ? `<span class="warn">⚠ .env 에 ${missing.join(', ')} 를 설정한 뒤 서버를 다시 실행하세요</span>`
+    ? `<span class="warn">⚠ ${missing.join(', ')} 가 설정되지 않았습니다 (Render 환경변수 또는 .env 확인)</span>`
     : `<span class="ok">● Gemini · Mirra 연결 준비됨</span>`;
 })().catch(showError);

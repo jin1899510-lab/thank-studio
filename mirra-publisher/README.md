@@ -21,7 +21,27 @@ PC 에 저장된 영상을 고르면 **AI 가 영상을 분석해 캡션·해시
 Mirra 연동은 Mirra 공식 MCP 서버(`@mirrai/mcp-server`)와 같은 Mirra REST API(`/api/v1`)를 사용합니다.
 그래서 브라우저로 Mirra 사이트를 클릭하는 방식보다 안정적이고, 화면 구성이 바뀌어도 동작합니다.
 
-## 설치
+## 가장 쉬운 방법: 웹 앱으로 올리기 (PC 설치 없음)
+
+인터넷 서비스 Render 에 올려 두면 **웹 주소 하나로 PC·휴대폰 어디서나** 쓸 수 있습니다.
+
+1. https://render.com 에 GitHub 계정으로 가입합니다. (무료)
+2. 아래 링크를 엽니다.
+   https://render.com/deploy?repo=https://github.com/jin1899510-lab/thank-studio/tree/claude/quirky-fermat-jk05oj
+3. 입력칸 4개를 채우고 **Deploy Blueprint** 를 누릅니다.
+   - `APP_PASSWORD`: 이 앱에 들어갈 때 쓸 비밀번호 (직접 정함)
+   - `GEMINI_API_KEY`: Gemini 키
+   - `MIRRA_API_KEY`: Mirra 키
+   - `MIRRA_DEFAULT_ACCOUNTS`: 항상 발행할 계정 (예: `instagram:thank_cafe`, 없으면 비워도 됨)
+4. 몇 분 뒤 `https://mirra-publisher-xxxx.onrender.com` 같은 주소가 생깁니다. 이 주소를 열고,
+   아이디는 아무거나, 비밀번호는 `APP_PASSWORD` 로 로그인하면 바로 사용할 수 있습니다.
+
+참고: 무료 요금제는 15분 동안 안 쓰면 잠들어서, 다음 접속 때 첫 화면이 뜨기까지 1분 정도 걸립니다.
+키나 계정을 바꾸려면 Render 대시보드 → mirra-publisher → **Environment** 에서 수정합니다.
+
+## PC 에서 직접 실행하기
+
+### 설치
 
 Node.js 18.17 이상이 필요합니다.
 
@@ -37,7 +57,7 @@ cp .env.example .env     # Windows: copy .env.example .env
 - `MIRRA_API_KEY`: Mirra 워크스페이스 설정 → API 키
 - `MIRRA_DEFAULT_ACCOUNTS` (선택): 항상 발행할 계정. 예) `instagram:thank_cafe,youtube:thankstudio`
 
-## 사용법 ① 웹 화면 (권장)
+### 웹 화면
 
 ```bash
 npm start
@@ -50,7 +70,7 @@ npm start
 - "지금 발행"은 최종 확인 체크와 확인 창을 모두 거쳐야 실행됩니다.
 - 서버는 이 PC(127.0.0.1)에서만 접속되며, API 키는 브라우저로 전달되지 않습니다.
 
-## 사용법 ② 터미널 (자동화용)
+### 터미널 (자동화용)
 
 ```bash
 # 단계마다 확인하며 진행

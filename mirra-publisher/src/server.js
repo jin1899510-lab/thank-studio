@@ -8,7 +8,7 @@ import { createWriteStream } from 'node:fs';
 import { mkdir, readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { extname, join, resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import { ROOT_DIR, config, requireKeys } from './config.js';
 import { videoMimeType } from './mirra.js';
@@ -163,9 +163,28 @@ async function serveStatic(res, pathname) {
   }
 }
 
-export function createAppServer() {
+// APP_PASSWORD 가 설정되면 모든 요청에 비밀번호(HTTP Basic 인증)를 요구한다. 아이디는 아무거나.
+function isAuthorized(req, password) {
+  if (!password) return true;
+  const [scheme, encoded] = (req.headers.authorization || '').split(' ');
+  if (scheme !== 'Basic' || !encoded) return false;
+  const decoded = Buffer.from(encoded, 'base64').toString('utf8');
+  const given = Buffer.from(decoded.slice(decoded.indexOf(':') + 1));
+  const expected = Buffer.from(password);
+  return given.length === expected.length && timingSafeEqual(given, expected);
+}
+
+export function createAppServer({ password = config.appPassword } = {}) {
   return createServer(async (req, res) => {
     const { pathname } = new URL(req.url, 'http://localhost');
+    if (pathname === '/healthz') {
+      res.writeHead(200);
+      return res.end('ok');
+    }
+    if (!isAuthorized(req, password)) {
+      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Mirra Publisher", charset="UTF-8"', 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end('비밀번호가 필요합니다.');
+    }
     try {
       const events = pathname.match(/^\/api\/jobs\/([\w-]+)\/events$/);
       if (req.method === 'GET' && events) {
@@ -200,8 +219,13 @@ export function createAppServer() {
 }
 
 if (process.argv[1]?.endsWith('server.js')) {
-  createAppServer().listen(config.port, '127.0.0.1', () => {
-    console.log(`\n  Mirra 자동 발행 도구 실행 중 → http://localhost:${config.port}\n`);
+  const isLocal = ['127.0.0.1', 'localhost', '::1'].includes(config.host);
+  if (!isLocal && !config.appPassword) {
+    console.error('APP_PASSWORD 없이 외부에 공개할 수 없습니다. 환경변수 APP_PASSWORD 를 설정하세요.');
+    process.exit(1);
+  }
+  createAppServer().listen(config.port, config.host, () => {
+    console.log(`\n  Mirra 자동 발행 도구 실행 중 → http://${isLocal ? 'localhost' : config.host}:${config.port}\n`);
     if (!config.geminiApiKey) console.warn('  ⚠ GEMINI_API_KEY 가 없습니다 (.env 확인)');
     if (!config.mirraApiKey) console.warn('  ⚠ MIRRA_API_KEY 가 없습니다 (.env 확인)');
   });

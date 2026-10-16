@@ -1,0 +1,24 @@
+# Render 원클릭 배포 설정 — Mirra 자동 발행 웹 앱 (mirra-publisher)
+services:
+  - type: web
+    name: mirra-publisher
+    runtime: node
+    plan: free
+    branch: claude/quirky-fermat-jk05oj
+    rootDir: mirra-publisher
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: NODE_VERSION
+        value: "22"
+      - key: APP_PASSWORD
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: MIRRA_API_KEY
+        sync: false
+      - key: MIRRA_DEFAULT_ACCOUNTS
+        sync: false

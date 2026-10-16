@@ -38,6 +38,9 @@ export const config = {
   captionLanguage: process.env.CAPTION_LANGUAGE || '한국어',
   hashtagCount: Number(process.env.HASHTAG_COUNT || 15),
   port: Number(process.env.PORT || 5180),
+  // 인터넷에 올릴 때는 HOST=0.0.0.0, 그리고 APP_PASSWORD 가 반드시 필요
+  host: process.env.HOST || '127.0.0.1',
+  appPassword: process.env.APP_PASSWORD || '',
   uploadDir: resolve(ROOT_DIR, 'uploads'),
 };
 

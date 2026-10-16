@@ -134,3 +134,18 @@ test('웹 서버 e2e: 영상 업로드 → Mirra → 초안 → 확인 없이 �
     server.close();
   }
 });
+
+test('APP_PASSWORD 설정 시 비밀번호 없이는 접근 불가', async () => {
+  const server = createAppServer({ password: 's3cret' }).listen(0, '127.0.0.1');
+  await new Promise((r) => server.once('listening', r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const auth = (pw) => ({ Authorization: `Basic ${Buffer.from(`me:${pw}`).toString('base64')}` });
+  try {
+    assert.equal((await fetch(`${base}/healthz`)).status, 200);
+    assert.equal((await fetch(`${base}/`)).status, 401);
+    assert.equal((await fetch(`${base}/api/status`, { headers: auth('wrong') })).status, 401);
+    assert.equal((await fetch(`${base}/api/status`, { headers: auth('s3cret') })).status, 200);
+  } finally {
+    server.close();
+  }
+});
