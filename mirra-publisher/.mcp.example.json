@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "mirra": {
-      "type": "http",
-      "url": "<Mirra 설정 > API와 MCP > MCP 연동 > 원격 MCP 탭에 표시된 URL>"
-    }
-  }
-}

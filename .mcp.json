@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mirra": {
+      "type": "http",
+      "url": "https://www.mirra.my/api/mcp"
+    }
+  }
+}

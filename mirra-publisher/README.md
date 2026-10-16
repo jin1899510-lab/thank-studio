@@ -9,9 +9,8 @@ PC 영상 → 분석 → 캡션/해시태그 → Mirra "지금 발행" → 발�
 2. ffmpeg 설치 (`winget install ffmpeg` / `brew install ffmpeg`). 음성 인식이 필요하면 `pip install openai-whisper`.
 3. `config.example.json`을 `config.json`으로 복사하고 영상 폴더, **발행 계정**, 브랜드·매장·지역을 입력합니다.
 4. Mirra 연결 (둘 중 하나):
-   - **원격 MCP(권장)**: Mirra → 설정 → API와 MCP → MCP 연동 → 원격 MCP 탭의 URL을 복사해
-     `claude mcp add --transport http mirra <URL>` 실행 후 `/mcp`에서 OAuth 로그인.
-     (또는 `.mcp.example.json`을 저장소 루트의 `.mcp.json`으로 복사해 URL 입력)
+   - **원격 MCP(권장)**: 저장소 루트의 `.mcp.json`에 `https://www.mirra.my/api/mcp`가 등록돼 있습니다.
+     이 폴더에서 Claude Code를 열면 프로젝트 MCP 사용 여부를 묻는데, 승인한 뒤 `/mcp` → `mirra` → 인증으로 OAuth 로그인을 1회 진행합니다.
    - **브라우저**: Claude in Chrome 확장 또는 Playwright MCP를 연결하고 Mirra에 미리 로그인해 둡니다.
 
 ## 실행
