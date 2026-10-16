@@ -129,6 +129,10 @@ test('웹 서버 e2e: 영상 업로드 → Mirra → 초안 → 확인 없이 �
     const { data: job } = await post('/api/jobs', Buffer.alloc(1024, 1), { 'X-File-Name': encodeURIComponent('내 영상.mp4') });
     assert.ok(job.jobId);
 
+    const progress = await (await fetch(`${base}/api/jobs/${job.jobId}`)).json();
+    assert.equal(progress.steps.length, 10);
+    assert.equal(progress.fileName, '내 영상.mp4');
+
     const analyze = await post(`/api/jobs/${job.jobId}/analyze`, {});
     assert.match(analyze.data.error, /GEMINI_API_KEY/);
 

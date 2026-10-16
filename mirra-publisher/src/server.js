@@ -74,6 +74,9 @@ const routes = {
     defaultAccounts: config.defaultAccounts,
   }),
 
+  // 작업 진행 상황 (여러 개 화면에서 주기적으로 확인)
+  'GET /api/jobs/:id': async (req, job) => ({ jobId: job.id, fileName: job.fileName, steps: job.steps }),
+
   // 1단계: PC 의 영상 파일을 받는다 (본문 = 파일 원본)
   'POST /api/jobs': async (req) => {
     const fileName = decodeURIComponent(req.headers['x-file-name'] || 'video.mp4').replace(/[\\/]/g, '_');
@@ -82,7 +85,7 @@ const routes = {
     const id = randomUUID();
     const filePath = join(config.uploadDir, `${id}${extname(fileName).toLowerCase()}`);
     await pipeline(req, createWriteStream(filePath));
-    jobs.set(id, { id, fileName, filePath, steps: STEPS.map(() => ({ state: 'pending' })), listeners: new Set() });
+    jobs.set(id, { id, createdAt: Date.now(), fileName, filePath, steps: STEPS.map(() => ({ state: 'pending' })), listeners: new Set() });
     return { jobId: id, fileName };
   },
 
@@ -162,6 +165,17 @@ const routes = {
     return result;
   },
 };
+
+// 오래된 작업과 임시 파일 정리 (6시간)
+const JOB_TTL_MS = 6 * 60 * 60 * 1000;
+setInterval(() => {
+  for (const [id, job] of jobs) {
+    if (Date.now() - job.createdAt < JOB_TTL_MS) continue;
+    jobs.delete(id);
+    rm(job.filePath, { force: true }).catch(() => {});
+    if (job.thumbnailPath) rm(job.thumbnailPath, { force: true }).catch(() => {});
+  }
+}, 30 * 60 * 1000).unref();
 
 function matchRoute(method, pathname) {
   for (const [key, handler] of Object.entries(routes)) {

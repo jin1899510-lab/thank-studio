@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mirra 여러 개 발행</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="top">
+    <h1>Mirra 자동 발행</h1>
+    <p>영상 여러 개를 한 번에: AI 캡션·해시태그·썸네일 → Mirra 업로드 → 모두 지금 발행</p>
+    <nav class="tabs"><a href="/">영상 1개</a><a href="/batch.html" class="active">여러 개 한번에</a></nav>
+    <div id="keyStatus" class="key-status"></div>
+  </header>
+
+  <main class="batch">
+    <article class="panel" id="panel-add">
+      <h2><span class="num">1</span>영상 선택 <small id="countLabel"></small></h2>
+      <label class="drop" id="drop">
+        <input type="file" id="fileInput" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v,.webm" multiple hidden />
+        <span>영상 여러 개를 한꺼번에 끌어다 놓거나 클릭해서 선택하세요<br /><small>mp4 · mov · webm · 최대 20개</small></span>
+      </label>
+      <details class="options">
+        <summary>캡션 작성 옵션 (모든 영상에 공통 적용)</summary>
+        <div class="grid">
+          <label>톤<input id="optTone" value="친근하고 자연스러운" /></label>
+          <label>언어<input id="optLanguage" value="한국어" /></label>
+          <label>해시태그 개수<input id="optCount" type="number" min="3" max="30" value="15" /></label>
+          <label class="wide">추가 요청 · 브랜드 정보<textarea id="optNotes" rows="2" placeholder="예) 성수동 카페 '땡큐', 신메뉴 홍보, 매장 방문 유도"></textarea></label>
+        </div>
+      </details>
+    </article>
+
+    <div id="cards" class="cards"></div>
+
+    <article class="panel" id="panel-accounts" hidden>
+      <h2><span class="num">8</span>발행할 계정 선택 <small>(모든 영상에 공통 적용)</small></h2>
+      <div id="accounts" class="accounts"></div>
+    </article>
+
+    <p id="error" class="error" hidden></p>
+
+    <div class="action-bar">
+      <label class="confirm" id="confirmWrap" hidden><input type="checkbox" id="confirmCheck" /> 모든 영상의 캡션, 해시태그, 썸네일, 발행 계정을 확인했습니다.</label>
+      <span id="actionHint" class="muted small"></span>
+      <button id="btnAction" class="primary" disabled>영상을 선택하세요</button>
+    </div>
+  </main>
+  <script src="/batch.js" type="module"></script>
+</body>
+</html>
