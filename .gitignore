@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# mirra-publisher local data
+mirra-publisher/config.json
+mirra-publisher/work/
+mirra-publisher/publish-log.csv

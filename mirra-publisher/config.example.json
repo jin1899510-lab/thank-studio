@@ -1,0 +1,8 @@
+{
+  "video_dir": "C:/Users/<사용자>/Videos/mirra-upload",
+  "accounts": ["<Mirra에 표시되는 발행 계정명 1>"],
+  "brand": "<브랜드명>",
+  "store": "<매장명>",
+  "region": "<지역명>",
+  "confirm_before_publish": true
+}
