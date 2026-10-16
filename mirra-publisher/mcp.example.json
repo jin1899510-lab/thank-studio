@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "mirra": {
+      "command": "npx",
+      "args": ["-y", "@mirrai/mcp-server@latest"],
+      "env": {
+        "MIRRA_API_KEY": "여기에_Mirra_API_키"
+      }
+    }
+  }
+}
