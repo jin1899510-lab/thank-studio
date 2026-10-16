@@ -107,6 +107,48 @@ export class VideoAnalyzer {
     });
     return normalizeHashtags(result.hashtags || []);
   }
+  /** 썸네일로 쓰기 좋은 장면(초 단위 시점) 추천 */
+  async suggestThumbnails(videoFile, caption, options = {}) {
+    const { language = config.captionLanguage, count = 3 } = options;
+    const prompt = [
+      '너는 SNS 썸네일 디자이너다. 첨부된 영상에서 썸네일(릴스 커버, 유튜브 썸네일)로 쓰기 가장 좋은 장면을 골라라.',
+      `- 서로 다른 장면 ${count}개, 클릭을 부르는 순서대로`,
+      '- 기준: 피사체가 선명하고 흔들림/모션블러가 없는 순간, 표정이나 결과물이 가장 잘 보이는 순간, 화면 전환 직전·직후는 피한다.',
+      '- time 은 영상 시작부터의 초(소수 가능)로, 실제 영상 길이 안에서만 고른다.',
+      `- reason 은 그 장면을 고른 이유 한 문장, headline 은 썸네일 위에 얹을 짧은 문구(${language}, 12자 이내).`,
+      '',
+      `[캡션]\n${caption}`,
+      '',
+      'JSON 으로 답한다: thumbnails(배열, 각 항목은 time, reason, headline).',
+    ].join('\n');
+
+    const result = await this.generateJson(videoFile, prompt, {
+      type: Type.OBJECT,
+      properties: {
+        thumbnails: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: { time: { type: Type.NUMBER }, reason: { type: Type.STRING }, headline: { type: Type.STRING } },
+            required: ['time', 'reason', 'headline'],
+          },
+        },
+      },
+      required: ['thumbnails'],
+    });
+    return normalizeThumbnails(result.thumbnails);
+  }
+}
+
+/** 시점 정리: 숫자 변환, 음수 제거, 1초 이내 중복 제거 */
+export function normalizeThumbnails(items) {
+  const result = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    const time = Math.max(0, Number(item?.time));
+    if (!Number.isFinite(time) || result.some((t) => Math.abs(t.time - time) < 1)) continue;
+    result.push({ time: Math.round(time * 10) / 10, reason: String(item.reason || '').trim(), headline: String(item.headline || '').trim().slice(0, 30) });
+  }
+  return result.slice(0, 5);
 }
 
 export function stripHashtags(text) {

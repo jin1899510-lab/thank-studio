@@ -50,11 +50,15 @@ export async function analyzeVideo(filePath, options = {}, onStep = () => {}) {
     const { summary, caption, youtubeTitle } = await analyzer.writeCaption(videoFile, options);
     onStep(2, 'done', '캡션 작성 완료');
 
-    onStep(3, 'running', '해시태그를 작성하는 중…');
-    const hashtags = await analyzer.writeHashtags(videoFile, caption, options);
-    onStep(3, 'done', `해시태그 ${hashtags.length}개 작성 완료`);
+    onStep(3, 'running', '해시태그를 작성하고 썸네일 장면을 고르는 중…');
+    const [hashtags, thumbnails] = await Promise.all([
+      analyzer.writeHashtags(videoFile, caption, options),
+      // 썸네일 추천이 실패해도 발행 흐름은 계속 진행
+      analyzer.suggestThumbnails(videoFile, caption, options).catch(() => []),
+    ]);
+    onStep(3, 'done', `해시태그 ${hashtags.length}개 · 추천 썸네일 ${thumbnails.length}개`);
 
-    return { summary, caption, youtubeTitle, hashtags };
+    return { summary, caption, youtubeTitle, hashtags, thumbnails };
   } finally {
     await analyzer.deleteVideo(videoFile);
   }
@@ -91,7 +95,7 @@ export function resolveDefaultAccounts(accounts, selectors) {
 
 // ── 6단계: Mirra 영상 업로드 ───────────────────────────────────────
 
-export async function uploadVideoToMirra(mirra, filePath, fileName, onStep = () => {}) {
+export async function uploadVideoToMirra(mirra, filePath, fileName, onStep = () => {}, { thumbnailPath } = {}) {
   onStep(6, 'running', 'Mirra 에 영상을 업로드하는 중…');
   let last = -1;
   const media = await mirra.uploadVideo(filePath, {
@@ -104,7 +108,11 @@ export async function uploadVideoToMirra(mirra, filePath, fileName, onStep = () 
       }
     },
   });
-  onStep(6, 'done', 'Mirra 영상 업로드 완료');
+  if (thumbnailPath) {
+    onStep(6, 'running', 'Mirra 에 썸네일을 업로드하는 중…');
+    media.thumbnailUrl = (await mirra.uploadImage(thumbnailPath)).url;
+  }
+  onStep(6, 'done', media.thumbnailUrl ? 'Mirra 영상 · 썸네일 업로드 완료' : 'Mirra 영상 업로드 완료');
   return media;
 }
 
@@ -115,8 +123,12 @@ export function buildPostText({ caption, hashtags }) {
 }
 
 /** 계정(플랫폼)별 Mirra 게시물 생성 요청 본문 */
-export function buildPostBody(account, { text, videoUrl, youtubeTitle }) {
+// 커스텀 썸네일(커버)을 지원하는 플랫폼
+const THUMBNAIL_PLATFORMS = new Set(['instagram', 'instagram_fb', 'youtube']);
+
+export function buildPostBody(account, { text, videoUrl, youtubeTitle, thumbnailUrl }) {
   const body = { socialAccountId: account.id, content: text, videos: [videoUrl] };
+  if (thumbnailUrl && THUMBNAIL_PLATFORMS.has(account.platform)) body.videoThumbnails = [thumbnailUrl];
   switch (account.platform) {
     case 'youtube':
       body.youtubeTitle = (youtubeTitle || text.split('\n').find((l) => l.trim()) || '').trim().slice(0, 100);
@@ -146,7 +158,7 @@ export function textWarnings(account, text) {
 
 // ── 8~9단계: 계정 선택 → 초안 생성 → 최종 확인 ─────────────────────
 
-export async function createDrafts(mirra, { accounts, accountIds, text, videoUrl, youtubeTitle }, onStep = () => {}) {
+export async function createDrafts(mirra, { accounts, accountIds, text, videoUrl, youtubeTitle, thumbnailUrl }, onStep = () => {}) {
   onStep(7, 'done', '캡션 및 해시태그 입력 완료');
   const selected = accountIds.map((id) => accounts.find((a) => a.id === id)).filter(Boolean);
   if (!selected.length) throw new Error('발행할 계정을 하나 이상 선택하세요.');
@@ -154,7 +166,7 @@ export async function createDrafts(mirra, { accounts, accountIds, text, videoUrl
   onStep(8, 'running', `선택한 계정 ${selected.length}개에 게시물을 준비하는 중…`);
   const drafts = [];
   for (const account of selected) {
-    const { postId } = await mirra.createPost(buildPostBody(account, { text, videoUrl, youtubeTitle }));
+    const { postId } = await mirra.createPost(buildPostBody(account, { text, videoUrl, youtubeTitle, thumbnailUrl }));
     drafts.push({ postId, account });
   }
   onStep(8, 'done', `발행 계정 선택 완료 · ${selected.map((a) => `${a.platformLabel} @${a.username}`).join(', ')}`);
@@ -171,6 +183,7 @@ export async function createDrafts(mirra, { accounts, accountIds, text, videoUrl
       content,
       youtubeTitle: post.youtubeTitle,
       videos: post.videos || [videoUrl],
+      thumbnail: post.videoThumbnails?.[0] || (THUMBNAIL_PLATFORMS.has(account.platform) ? thumbnailUrl : undefined),
       dashboardUrl: mirra.dashboardUrl(postId),
       warnings: textWarnings(account, content),
     });

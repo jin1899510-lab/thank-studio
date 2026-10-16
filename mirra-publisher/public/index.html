@@ -45,6 +45,17 @@
         <label>캡션<textarea id="caption" rows="9"></textarea></label>
         <label>해시태그 <small>(띄어쓰기로 구분)</small><textarea id="hashtags" rows="3"></textarea></label>
         <label>YouTube 제목 <small>(YouTube 계정 발행 시 사용)</small><input id="youtubeTitle" maxlength="100" /></label>
+
+        <div class="thumbs-section">
+          <h3>썸네일 추천 <small>(Instagram 릴스 커버 · YouTube 썸네일로 사용)</small></h3>
+          <div id="thumbs" class="thumbs"></div>
+          <div class="thumb-tools">
+            <button id="btnCaptureFrame" type="button">＋ 미리보기의 현재 장면 추가</button>
+            <label class="inline"><input type="checkbox" id="thumbTextOn" /> 썸네일에 문구 넣기</label>
+            <input id="thumbText" maxlength="30" placeholder="썸네일 문구" disabled />
+          </div>
+          <p class="muted small" id="thumbHint">마음에 드는 장면을 눌러 선택하세요. 선택하지 않으면 플랫폼이 자동으로 정합니다.</p>
+        </div>
         <button id="btnMirra" class="primary">Mirra 접속 및 영상 업로드</button>
       </article>
 

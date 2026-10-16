@@ -5,7 +5,7 @@
  * 외부에서 접근할 수 없도록 127.0.0.1 에만 바인딩한다.
  */
 import { createWriteStream } from 'node:fs';
-import { mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { extname, join, resolve } from 'node:path';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
@@ -94,6 +94,29 @@ const routes = {
     return job.analysis;
   },
 
+  // 썸네일 선택: 브라우저에서 잘라낸 장면 이미지(JPEG)를 받는다. 빈 본문 = 썸네일 사용 안 함
+  'POST /api/jobs/:id/thumbnail': async (req, job) => {
+    if (job.media) throw new HttpError(409, '이미 Mirra 에 업로드되어 썸네일을 바꿀 수 없습니다.');
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > 10 * 1024 * 1024) throw new HttpError(413, '썸네일 이미지는 10MB 이하여야 합니다.');
+      chunks.push(chunk);
+    }
+    const thumbnailPath = join(config.uploadDir, `${job.id}-thumbnail.jpg`);
+    if (!size) {
+      job.thumbnailPath = undefined;
+      await rm(thumbnailPath, { force: true });
+      return { thumbnail: false };
+    }
+    const body = Buffer.concat(chunks);
+    if (body[0] !== 0xff || body[1] !== 0xd8) throw new HttpError(400, 'JPEG 이미지만 사용할 수 있습니다.');
+    await writeFile(thumbnailPath, body);
+    job.thumbnailPath = thumbnailPath;
+    return { thumbnail: true, size };
+  },
+
   // 4~6단계: Mirra 접속 → 콘텐츠 관리 → 영상 업로드
   'POST /api/jobs/:id/mirra': async (req, job) => {
     requireKeys('mirraApiKey');
@@ -101,11 +124,11 @@ const routes = {
     const onStep = (...a) => emit(job, ...a);
     const { accounts, defaultAccountIds } = await connectMirra(mirra, onStep);
     job.accounts = accounts;
-    if (!job.media) job.media = await uploadVideoToMirra(mirra, job.filePath, job.fileName, onStep);
+    if (!job.media) job.media = await uploadVideoToMirra(mirra, job.filePath, job.fileName, onStep, { thumbnailPath: job.thumbnailPath });
     else onStep(6, 'done', 'Mirra 영상 업로드 완료 (이전 업로드 사용)');
     const text = buildPostText(job.analysis || {});
     emit(job, 7, 'waiting', '게시물 본문(캡션 + 해시태그)을 확인하세요');
-    return { accounts, defaultAccountIds, videoUrl: job.media.url, text };
+    return { accounts, defaultAccountIds, videoUrl: job.media.url, thumbnailUrl: job.media.thumbnailUrl, text };
   },
 
   // 7~9단계: 본문 입력 → 계정 선택(초안 생성) → 최종 확인 데이터
@@ -121,6 +144,7 @@ const routes = {
       text,
       videoUrl: job.media.url,
       youtubeTitle: youtubeTitle ?? job.analysis?.youtubeTitle,
+      thumbnailUrl: job.media.thumbnailUrl,
     }, (...a) => emit(job, ...a));
     return { drafts: job.drafts };
   },
@@ -134,6 +158,7 @@ const routes = {
     job.published = true;
     const result = await publishNow(createMirraClient(), job.drafts.map((d) => d.postId), (...a) => emit(job, ...a));
     rm(job.filePath, { force: true }).catch(() => {});
+    if (job.thumbnailPath) rm(job.thumbnailPath, { force: true }).catch(() => {});
     return result;
   },
 };

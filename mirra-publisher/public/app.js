@@ -1,7 +1,7 @@
 const $ = (id) => document.getElementById(id);
 const LIMITS = { instagram: 2200, instagram_fb: 2200, tiktok: 2200, youtube: 5000, twitter: 280, threads: 500, linkedin: 3000, facebook: 63206 };
 
-const state = { jobId: null, file: null, steps: [], accounts: [], events: null };
+const state = { jobId: null, file: null, steps: [], accounts: [], events: null, thumbs: [], thumbIndex: -1 };
 
 function escapeHtml(text) {
   return String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -10,8 +10,8 @@ function escapeHtml(text) {
 async function api(path, { method = 'POST', body, headers } = {}) {
   const res = await fetch(path, {
     method,
-    headers: body instanceof File ? headers : { 'Content-Type': 'application/json', ...headers },
-    body: body instanceof File ? body : body ? JSON.stringify(body) : undefined,
+    headers: body instanceof Blob ? headers : { 'Content-Type': 'application/json', ...headers },
+    body: body instanceof Blob ? body : body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `요청 실패 (${res.status})`);
@@ -102,6 +102,7 @@ $('btnAnalyze').addEventListener('click', () => busy($('btnAnalyze'), '영상 �
   $('caption').value = result.caption;
   $('hashtags').value = result.hashtags.join(' ');
   $('youtubeTitle').value = result.youtubeTitle || '';
+  loadThumbnails(result.thumbnails || []);
   $('panel-caption').hidden = false;
   $('btnAnalyze').hidden = true;
   $('fileInput').disabled = true;
@@ -110,6 +111,7 @@ $('btnAnalyze').addEventListener('click', () => busy($('btnAnalyze'), '영상 �
 
 // 4~6단계: Mirra 접속 → 콘텐츠 관리 → 영상 업로드
 $('btnMirra').addEventListener('click', () => busy($('btnMirra'), 'Mirra 진행 중…', async () => {
+  await saveThumbnail();
   const result = await api(`/api/jobs/${state.jobId}/mirra`);
   state.accounts = result.accounts;
   const tags = $('hashtags').value.split(/[\s,]+/).filter(Boolean).map((t) => (t.startsWith('#') ? t : `#${t}`));
@@ -117,10 +119,153 @@ $('btnMirra').addEventListener('click', () => busy($('btnMirra'), 'Mirra 진행 
   renderAccounts(result.defaultAccountIds);
   updateCounter();
   ['caption', 'hashtags', 'youtubeTitle'].forEach((id) => ($(id).readOnly = true));
+  lockThumbnails();
   $('btnMirra').hidden = true;
   $('panel-post').hidden = false;
   $('panel-post').scrollIntoView({ behavior: 'smooth' });
 }).catch(() => {}));
+
+
+// ── 썸네일 추천 ───────────────────────────────────────────
+
+const formatTime = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+let frameVideo;
+
+// 브라우저에서 영상의 특정 시점을 이미지로 잘라낸다 (서버에 ffmpeg 불필요)
+async function grabFrame(time) {
+  if (!frameVideo) {
+    frameVideo = document.createElement('video');
+    frameVideo.muted = true;
+    frameVideo.preload = 'auto';
+    frameVideo.src = $('preview').src;
+    await new Promise((ok, fail) => {
+      frameVideo.onloadeddata = ok;
+      frameVideo.onerror = () => fail(new Error('이 브라우저에서 영상 장면을 읽을 수 없습니다. (Chrome 권장)'));
+    });
+  }
+  const t = Math.min(Math.max(0, time), Math.max(0, frameVideo.duration - 0.1));
+  await new Promise((ok) => {
+    frameVideo.onseeked = ok;
+    frameVideo.currentTime = t;
+  });
+  const scale = Math.min(1, 1920 / Math.max(frameVideo.videoWidth, frameVideo.videoHeight));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(frameVideo.videoWidth * scale);
+  canvas.height = Math.round(frameVideo.videoHeight * scale);
+  canvas.getContext('2d').drawImage(frameVideo, 0, 0, canvas.width, canvas.height);
+  return { time: t, canvas };
+}
+
+// 썸네일 문구: 아래쪽에 굵은 흰 글씨 + 검은 테두리
+function composeThumbnail(canvas, text) {
+  const out = document.createElement('canvas');
+  out.width = canvas.width;
+  out.height = canvas.height;
+  const ctx = out.getContext('2d');
+  ctx.drawImage(canvas, 0, 0);
+  if (text) {
+    let size = Math.round(Math.min(out.width, out.height) * 0.11);
+    ctx.font = `900 ${size}px "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif`;
+    while (ctx.measureText(text).width > out.width * 0.9 && size > 12) {
+      size -= 2;
+      ctx.font = `900 ${size}px "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif`;
+    }
+    const gradient = ctx.createLinearGradient(0, out.height * 0.6, 0, out.height);
+    gradient.addColorStop(0, 'rgba(0,0,0,0)');
+    gradient.addColorStop(1, 'rgba(0,0,0,0.55)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, out.height * 0.6, out.width, out.height * 0.4);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(4, size * 0.16);
+    ctx.strokeStyle = '#000';
+    ctx.fillStyle = '#fff';
+    const y = out.height * 0.9;
+    ctx.strokeText(text, out.width / 2, y);
+    ctx.fillText(text, out.width / 2, y);
+  }
+  return out;
+}
+
+function renderThumbs() {
+  const text = $('thumbTextOn').checked ? $('thumbText').value.trim() : '';
+  $('thumbs').innerHTML = '';
+  state.thumbs.forEach((thumb, i) => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = `thumb${i === state.thumbIndex ? ' selected' : ''}`;
+    const img = composeThumbnail(thumb.canvas, text);
+    img.className = 'thumb-img';
+    card.append(img);
+    const meta = document.createElement('span');
+    meta.className = 'thumb-meta';
+    meta.innerHTML = `<strong>${i === state.thumbIndex ? '✓ 선택됨' : thumb.recommended ? `추천 ${i + 1}` : '직접 추가'} · ${formatTime(thumb.time)}</strong>${thumb.reason ? `<small>${escapeHtml(thumb.reason)}</small>` : ''}`;
+    card.append(meta);
+    card.addEventListener('click', () => {
+      if (state.thumbsLocked) return;
+      state.thumbIndex = state.thumbIndex === i ? -1 : i;
+      if (state.thumbIndex !== -1 && thumb.headline && !$('thumbText').value) $('thumbText').value = thumb.headline;
+      renderThumbs();
+    });
+    $('thumbs').append(card);
+  });
+}
+
+async function loadThumbnails(suggestions) {
+  state.thumbs = [];
+  state.thumbIndex = -1;
+  $('thumbs').innerHTML = '<p class="muted small">추천 장면을 불러오는 중…</p>';
+  const times = suggestions.length ? suggestions : [{ time: 1, reason: '', headline: '' }];
+  try {
+    for (const s of times) {
+      const { time, canvas } = await grabFrame(s.time);
+      state.thumbs.push({ ...s, time, canvas, recommended: suggestions.length > 0 });
+    }
+    const headline = suggestions.find((s) => s.headline)?.headline;
+    if (headline) $('thumbText').value = headline;
+    state.thumbIndex = suggestions.length ? 0 : -1;
+    renderThumbs();
+  } catch (error) {
+    $('thumbs').innerHTML = `<p class="warn small">⚠ ${escapeHtml(error.message)}</p>`;
+    $('btnCaptureFrame').disabled = true;
+  }
+}
+
+$('btnCaptureFrame').addEventListener('click', async () => {
+  $('btnCaptureFrame').disabled = true;
+  try {
+    const { time, canvas } = await grabFrame($('preview').currentTime);
+    state.thumbs.push({ time, canvas, reason: '', headline: '', recommended: false });
+    state.thumbIndex = state.thumbs.length - 1;
+    renderThumbs();
+  } catch (error) {
+    showError(error);
+  } finally {
+    $('btnCaptureFrame').disabled = Boolean(state.thumbsLocked);
+  }
+});
+$('thumbTextOn').addEventListener('change', (e) => {
+  $('thumbText').disabled = !e.target.checked;
+  renderThumbs();
+});
+$('thumbText').addEventListener('input', () => $('thumbTextOn').checked && renderThumbs());
+
+async function saveThumbnail() {
+  const thumb = state.thumbs[state.thumbIndex];
+  let body = new Blob([]);
+  if (thumb) {
+    const text = $('thumbTextOn').checked ? $('thumbText').value.trim() : '';
+    body = await new Promise((ok) => composeThumbnail(thumb.canvas, text).toBlob(ok, 'image/jpeg', 0.9));
+  }
+  await api(`/api/jobs/${state.jobId}/thumbnail`, { body, headers: { 'Content-Type': 'image/jpeg' } });
+}
+
+function lockThumbnails() {
+  state.thumbsLocked = true;
+  ['btnCaptureFrame', 'thumbTextOn', 'thumbText'].forEach((id) => ($(id).disabled = true));
+  $('thumbHint').textContent = state.thumbIndex === -1 ? '썸네일을 선택하지 않았습니다. (플랫폼 자동 선택)' : '선택한 썸네일이 Mirra 에 업로드되었습니다.';
+}
 
 // ── 7~8단계 ───────────────────────────────────────────────
 
@@ -176,6 +321,7 @@ function renderReview(drafts) {
           <strong>@${escapeHtml(d.account.username)}</strong>
           <a href="${escapeHtml(d.dashboardUrl)}" target="_blank" rel="noopener">Mirra 에서 보기 ↗</a>
         </div>
+        ${d.thumbnail ? `<img class="review-thumb" src="${escapeHtml(d.thumbnail)}" alt="썸네일" />` : ''}
         ${d.youtubeTitle ? `<p class="yt-title">제목: ${escapeHtml(d.youtubeTitle)}</p>` : ''}
         <pre>${escapeHtml(d.content)}</pre>
         ${d.warnings.map((w) => `<p class="warn">⚠ ${escapeHtml(w)}</p>`).join('')}

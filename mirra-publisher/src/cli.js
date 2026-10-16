@@ -9,9 +9,12 @@
  *   --notes "..."    추가 요청 · 브랜드 정보
  *   --yes            확인 질문 없이 바로 발행 (예약 작업/자동화용)
  *   --dry-run        최종 확인 단계까지만 진행하고 발행하지 않음 (초안은 Mirra 에 남음)
+ *   --thumbnail      AI 추천 1순위 장면을 썸네일로 사용 (PC 에 ffmpeg 가 설치되어 있어야 함)
  */
 import { existsSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import { requireKeys } from './config.js';
@@ -35,12 +38,13 @@ const { values, positionals } = parseArgs({
     notes: { type: 'string' },
     yes: { type: 'boolean', default: false },
     'dry-run': { type: 'boolean', default: false },
+    thumbnail: { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h', default: false },
   },
 });
 
 if (values.help || !positionals[0]) {
-  console.log('사용법: npm run publish-video -- <영상파일> [--accounts a,b] [--tone ".."] [--notes ".."] [--yes] [--dry-run]');
+  console.log('사용법: npm run publish-video -- <영상파일> [--accounts a,b] [--tone ".."] [--notes ".."] [--yes] [--dry-run] [--thumbnail]');
   process.exit(values.help ? 0 : 1);
 }
 
@@ -56,6 +60,18 @@ const rl = createInterface({ input: process.stdin, output: process.stdout });
 const ask = async (q) => (values.yes ? 'y' : (await rl.question(q)).trim());
 const yes = async (q) => /^(y|yes|ㅇ|네|예)?$/i.test(await ask(`${q} [Y/n] `));
 
+/** ffmpeg 로 지정 시점의 장면을 JPEG 로 저장 (없으면 썸네일 없이 진행) */
+function extractFrame(videoPath, time) {
+  const out = join(tmpdir(), `mirra-thumb-${process.pid}.jpg`);
+  const result = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-ss', String(time), '-i', videoPath, '-frames:v', '1', '-q:v', '2', out]);
+  if (result.error || result.status !== 0 || !existsSync(out)) {
+    console.warn('⚠ ffmpeg 로 썸네일을 만들지 못해 썸네일 없이 진행합니다. (웹 화면에서는 ffmpeg 없이 선택 가능)');
+    return undefined;
+  }
+  console.log(`🖼  ${time}초 장면을 썸네일로 사용합니다.`);
+  return out;
+}
+
 async function main() {
   requireKeys('geminiApiKey', 'mirraApiKey');
   const filePath = resolve(positionals[0]);
@@ -64,13 +80,19 @@ async function main() {
   // 1~3단계
   const analysis = await analyzeVideo(filePath, { tone: values.tone, notes: values.notes }, onStep);
   console.log(`\n🎬 ${analysis.summary}\n\n── 캡션 ──\n${analysis.caption}\n\n── 해시태그 ──\n${analysis.hashtags.join(' ')}\n`);
+  if (analysis.thumbnails.length) {
+    console.log('── 추천 썸네일 장면 ──');
+    analysis.thumbnails.forEach((t, i) => console.log(`  ${i + 1}. ${t.time}초 — ${t.reason}${t.headline ? ` (문구: ${t.headline})` : ''}`));
+    console.log('');
+  }
+  const thumbnailPath = values.thumbnail && analysis.thumbnails[0] ? extractFrame(filePath, analysis.thumbnails[0].time) : undefined;
   if (!(await yes('이 캡션과 해시태그로 진행할까요?'))) throw new Error('사용자가 취소했습니다.');
 
   // 4~6단계
   const mirra = createMirraClient();
   const { accounts, defaultAccountIds } = await connectMirra(mirra, onStep);
   if (!accounts.length) throw new Error('Mirra 에 연결된 SNS 계정이 없습니다.');
-  const media = await uploadVideoToMirra(mirra, filePath, basename(filePath), onStep);
+  const media = await uploadVideoToMirra(mirra, filePath, basename(filePath), onStep, { thumbnailPath });
 
   // 7단계
   const text = buildPostText(analysis);
@@ -87,7 +109,7 @@ async function main() {
     const picked = await rl.question('발행할 계정 번호 (쉼표로 구분): ');
     accountIds = picked.split(/[,\s]+/).map((n) => accounts[Number(n) - 1]?.id).filter(Boolean);
   }
-  const drafts = await createDrafts(mirra, { accounts, accountIds, text, videoUrl: media.url, youtubeTitle: analysis.youtubeTitle }, onStep);
+  const drafts = await createDrafts(mirra, { accounts, accountIds, text, videoUrl: media.url, youtubeTitle: analysis.youtubeTitle, thumbnailUrl: media.thumbnailUrl }, onStep);
 
   // 9단계
   console.log('\n════════ 최종 내용 확인 ════════');

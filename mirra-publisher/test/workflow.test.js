@@ -35,6 +35,19 @@ test('해시태그 정규화: # 접두어, 공백/중복 제거', () => {
   assert.equal(analyzer.stripHashtags('맛있어요 #카페 #라떼\n좋아요').trim(), '맛있어요\n좋아요');
 });
 
+test('썸네일 추천 시점 정리', () => {
+  assert.deepEqual(analyzer.normalizeThumbnails([
+    { time: 3.14159, reason: ' 선명 ', headline: '라떼' },
+    { time: 3.5, reason: '중복', headline: '' },
+    { time: -2, reason: '음수', headline: '' },
+    { time: 'abc', reason: '잘못됨', headline: '' },
+  ]), [
+    { time: 3.1, reason: '선명', headline: '라떼' },
+    { time: 0, reason: '음수', headline: '' },
+  ]);
+  assert.deepEqual(analyzer.normalizeThumbnails(undefined), []);
+});
+
 test('지정된 계정(MIRRA_DEFAULT_ACCOUNTS) 해석', () => {
   const accounts = [
     { id: '1', username: 'thank_cafe', displayName: '땡큐카페', platform: 'instagram' },
@@ -55,6 +68,10 @@ test('플랫폼별 게시물 본문 구성', () => {
   assert.deepEqual(workflow.buildPostBody({ id: 'i', platform: 'instagram' }, input).instagramOptions, { shareToFeed: true });
   assert.equal(workflow.buildPostBody({ id: 't', platform: 'tiktok' }, input).tiktokOptions.tiktokPostMode, 'DIRECT_POST');
   assert.deepEqual(workflow.buildPostBody({ id: 'x', platform: 'twitter' }, input).videos, ['https://cdn/v.mp4']);
+  const withThumb = { ...input, thumbnailUrl: 'https://cdn/t.jpg' };
+  assert.deepEqual(workflow.buildPostBody({ id: 'i', platform: 'instagram' }, withThumb).videoThumbnails, ['https://cdn/t.jpg']);
+  assert.deepEqual(workflow.buildPostBody({ id: 'y', platform: 'youtube' }, withThumb).videoThumbnails, ['https://cdn/t.jpg']);
+  assert.equal(workflow.buildPostBody({ id: 't', platform: 'tiktok' }, withThumb).videoThumbnails, undefined);
 });
 
 test('4~10단계: Mirra 접속 → 업로드 → 초안 → 확인 → 지금 발행', async () => {
@@ -115,18 +132,30 @@ test('웹 서버 e2e: 영상 업로드 → Mirra → 초안 → 확인 없이 �
     const analyze = await post(`/api/jobs/${job.jobId}/analyze`, {});
     assert.match(analyze.data.error, /GEMINI_API_KEY/);
 
+    const badThumb = await post(`/api/jobs/${job.jobId}/thumbnail`, Buffer.from('not-jpeg'), { 'Content-Type': 'image/jpeg' });
+    assert.equal(badThumb.status, 400);
+    const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(500, 3)]);
+    const { data: t } = await post(`/api/jobs/${job.jobId}/thumbnail`, jpeg, { 'Content-Type': 'image/jpeg' });
+    assert.equal(t.thumbnail, true);
+
     const { data: m } = await post(`/api/jobs/${job.jobId}/mirra`);
     assert.deepEqual(m.defaultAccountIds, ['acc-ig']);
+    assert.match(m.thumbnailUrl, /thumbnail\.jpg$/);
+    const lateThumb = await post(`/api/jobs/${job.jobId}/thumbnail`, jpeg, { 'Content-Type': 'image/jpeg' });
+    assert.equal(lateThumb.status, 409);
     assert.ok(m.videoUrl.endsWith('.mp4'));
 
-    const { data: d } = await post(`/api/jobs/${job.jobId}/drafts`, { text: '캡션\n\n#태그', accountIds: ['acc-x'] });
+    const { data: d } = await post(`/api/jobs/${job.jobId}/drafts`, { text: '캡션\n\n#태그', accountIds: ['acc-x', 'acc-ig'] });
     assert.equal(d.drafts[0].account.username, 'thank_x');
+    assert.equal(mock.posts.get(d.drafts[0].postId).videoThumbnails, undefined);
+    assert.deepEqual(mock.posts.get(d.drafts[1].postId).videoThumbnails, [m.thumbnailUrl]);
+    assert.equal(d.drafts[1].thumbnail, m.thumbnailUrl);
 
     const refused = await post(`/api/jobs/${job.jobId}/publish`, {});
     assert.equal(refused.status, 400);
 
     const { data: p } = await post(`/api/jobs/${job.jobId}/publish`, { confirmed: true });
-    assert.equal(p.results[0].status, 'published');
+    assert.deepEqual(p.results.map((r) => r.status), ['published', 'published']);
 
     const again = await post(`/api/jobs/${job.jobId}/publish`, { confirmed: true });
     assert.equal(again.status, 409);

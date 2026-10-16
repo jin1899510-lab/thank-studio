@@ -118,7 +118,16 @@ export class MirraClient {
 
   /** 로컬 영상 파일을 Mirra 스토리지에 업로드하고 공개 URL 을 돌려준다 */
   async uploadVideo(filePath, { fileName = basename(filePath), onProgress } = {}) {
-    const fileType = videoMimeType(fileName);
+    return this.uploadFile(filePath, { fileName, fileType: videoMimeType(fileName), confirmType: 'video', onProgress });
+  }
+
+  /** 썸네일 이미지 업로드 (JPEG/PNG) */
+  async uploadImage(filePath, { fileName = basename(filePath) } = {}) {
+    const fileType = /\.png$/i.test(fileName) ? 'image/png' : 'image/jpeg';
+    return this.uploadFile(filePath, { fileName, fileType, confirmType: 'image' });
+  }
+
+  async uploadFile(filePath, { fileName, fileType, confirmType, onProgress }) {
     const { size } = await stat(filePath);
     const { uploadUrl, storagePath } = await this.request('POST', '/api/v1/media/upload-url', {
       body: { fileName, fileType, fileSize: size },
@@ -138,10 +147,10 @@ export class MirraClient {
       duplex: 'half',
     });
     if (!response.ok) {
-      throw new MirraApiError(response.status, `영상 스토리지 업로드 실패 (HTTP ${response.status})`);
+      throw new MirraApiError(response.status, `스토리지 업로드 실패 (HTTP ${response.status})`);
     }
     const confirmed = await this.request('POST', '/api/v1/media/confirm-upload', {
-      body: { storagePath, fileType: 'video' },
+      body: { storagePath, fileType: confirmType },
     });
     const url = confirmed.url || confirmed.publicUrl || confirmed.data?.url;
     if (!url) throw new MirraApiError(500, `업로드 확정 응답에 URL 이 없습니다: ${JSON.stringify(confirmed)}`);
