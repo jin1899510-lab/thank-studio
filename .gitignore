@@ -27,3 +27,5 @@ dist-ssr
 mirra-publisher/config.json
 mirra-publisher/work/
 mirra-publisher/publish-log.csv
+mirra-publisher/tools.json
+__pycache__/
